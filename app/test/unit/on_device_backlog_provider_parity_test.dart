@@ -1,9 +1,25 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:omi/backend/preferences.dart';
 import 'package:omi/backend/schema/bt_device/bt_device.dart';
+import 'package:omi/backend/schema/conversation.dart';
 import 'package:omi/pages/conversations/sync_pending_work.dart';
 import 'package:omi/services/wals/local_wal_sync.dart';
 import 'package:omi/services/wals/wal.dart';
+import 'package:omi/services/wals/wal_interfaces.dart';
+import 'package:omi/utils/wal_file_manager.dart';
+
+class _MockListener implements IWalSyncListener {
+  @override
+  void onWalUpdated() {}
+
+  @override
+  void onWalSynced(Wal wal, {ServerConversation? conversation}) {}
+}
 
 /// Selecting an on-device transcription provider must apply to the whole
 /// library, not only to recordings captured after the setting changed.
@@ -16,6 +32,32 @@ import 'package:omi/services/wals/wal.dart';
 ///
 /// These tests pin the current behaviour so a fix has something to flip.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late Directory tempDir;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await SharedPreferencesUtil.init();
+    tempDir = await Directory.systemTemp.createTemp('on_device_route_');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (MethodCall call) async {
+        if (call.method == 'getApplicationDocumentsDirectory') return tempDir.path;
+        return null;
+      },
+    );
+    await WalFileManager.init();
+  });
+
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      null,
+    );
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
   Wal makeWal({required WalStatus status, bool onDeviceOnly = false}) {
     return Wal(
       timerStart: 1700000000,
@@ -138,6 +180,72 @@ void main() {
         status: WalStatus.miss,
       );
       expect(LocalWalSyncImpl.shouldRouteToProvider(inMemory, onDevice: true), isFalse);
+    });
+  });
+
+  group('LocalWalSyncImpl.routeUnsentRecordingsToProvider', () {
+    late LocalWalSyncImpl sync;
+
+    setUp(() async {
+      sync = LocalWalSyncImpl(_MockListener());
+      sync.setDeviceInfo('devkit-1', 'Omi DevKit');
+      sync.start();
+      await sync.walReady;
+    });
+
+    tearDown(() async {
+      await sync.stop();
+    });
+
+    Future<void> addUnsent({
+      bool onDeviceOnly = false,
+      bool? capturedOnDeviceOnly,
+      String name = 'audio_route.bin',
+    }) async {
+      File('${tempDir.path}/$name').writeAsBytesSync(List.filled(64, 0xAB), flush: true);
+      final wal = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 1,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: name,
+        device: 'devkit-1',
+        deviceModel: 'Omi DevKit',
+        totalFrames: 10,
+        onDeviceOnly: onDeviceOnly,
+        capturedOnDeviceOnly: capturedOnDeviceOnly,
+      );
+      await sync.addExternalWal(wal, admittedGeneration: sync.sessionGeneration);
+    }
+
+    test('adopts an unsent legacy recording and persists the flip', () async {
+      await addUnsent();
+
+      final moved = await sync.routeUnsentRecordingsToProvider(onDevice: true);
+
+      expect(moved, 1);
+      final index = await WalFileManager.loadWals();
+      expect(index, hasLength(1));
+      expect(index.first.onDeviceOnly, isTrue, reason: 'the flip must survive a restart');
+    });
+
+    test('never releases audio that was genuinely captured on-device', () async {
+      await addUnsent(onDeviceOnly: true, capturedOnDeviceOnly: true);
+
+      final moved = await sync.routeUnsentRecordingsToProvider(onDevice: false);
+
+      expect(moved, 0, reason: 'that phone copy may be the only one');
+      final index = await WalFileManager.loadWals();
+      expect(index.first.onDeviceOnly, isTrue);
+    });
+
+    test('routes the backlog only once', () async {
+      await addUnsent();
+
+      expect(await sync.routeUnsentRecordingsToProvider(onDevice: true), 1);
+      expect(await sync.routeUnsentRecordingsToProvider(onDevice: true), 0,
+          reason: 'already on the on-device path');
     });
   });
 }
