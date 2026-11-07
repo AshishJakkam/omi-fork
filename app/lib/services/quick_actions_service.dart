@@ -1,0 +1,211 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
+import 'package:quick_actions/quick_actions.dart';
+
+import 'package:omi/app_globals.dart';
+import 'package:omi/pages/action_items/widgets/action_item_form_sheet.dart';
+import 'package:omi/pages/chat/chat_route.dart';
+import 'package:omi/pages/chat/page.dart';
+import 'package:omi/pages/settings/device_settings.dart';
+import 'package:omi/providers/capture_provider.dart';
+import 'package:omi/providers/device_provider.dart';
+import 'package:omi/providers/home_provider.dart';
+import 'package:omi/utils/enums.dart';
+import 'package:omi/utils/l10n_extensions.dart';
+import 'package:omi/utils/other/temp.dart';
+
+const _kAddTask = 'add_task';
+const _kAskOmi = 'ask_omi';
+const _kVoiceMode = 'voice_mode';
+const _kMute = 'mute';
+const _kUnmute = 'unmute';
+const _kConnectDevice = 'connect_device';
+const _kDeviceSettings = 'device_settings';
+
+class QuickActionsService {
+  static final QuickActionsService _instance = QuickActionsService._();
+  QuickActionsService._()
+      : _quickActions = const QuickActions(),
+        _isSupported = Platform.isIOS;
+
+  @visibleForTesting
+  QuickActionsService.forTesting({required QuickActions quickActions})
+      : _quickActions = quickActions,
+        _isSupported = true;
+  static QuickActionsService get instance => _instance;
+
+  final QuickActions _quickActions;
+  final bool _isSupported;
+  bool _initialized = false;
+  List<(String, String)>? _publishedShortcuts;
+  // Projections whose publication failed and may still be retried. The dedupe
+  // cache (_publishedShortcuts) is cleared on failure so natural later updates
+  // republish; retries must survive that clearing, so they are tracked here.
+  final Set<List<(String, String)>> _failedShortcutProjections = {};
+  static const _maxShortcutRetries = 2;
+  int _shortcutRetries = 0;
+  Timer? _shortcutRetryTimer;
+
+  void initialize(BuildContext context) {
+    if (!_isSupported || _initialized) return;
+    _initialized = true;
+
+    _quickActions.initialize((shortcutType) {
+      _handleShortcut(shortcutType);
+    });
+
+    _updateShortcuts(context);
+  }
+
+  // Called from HomePage.dispose() so a rebuilt HomePage can re-register the callback.
+  void reset() {
+    _initialized = false;
+    _publishedShortcuts = null;
+    _failedShortcutProjections.clear();
+    _shortcutRetryTimer?.cancel();
+    _shortcutRetryTimer = null;
+  }
+
+  void updateShortcuts(BuildContext context) {
+    if (!_isSupported) return;
+    _updateShortcuts(context);
+  }
+
+  void _updateShortcuts(BuildContext context) {
+    final deviceProvider = Provider.of<DeviceProvider>(context, listen: false);
+    final captureProvider = Provider.of<CaptureProvider>(context, listen: false);
+
+    final isDeviceConnected = deviceProvider.isConnected;
+    final isMuted = captureProvider.recordingState == RecordingState.pause;
+
+    final l10n = context.l10n;
+
+    // iOS displays items in reverse array order (last = top of menu).
+    // Desired display (top→bottom): Add Task / Ask Omi Anything / Voice Mode / [Mute|Unmute] / Connect Device|Device Settings
+    final items = <ShortcutItem>[
+      ShortcutItem(
+        type: isDeviceConnected ? _kDeviceSettings : _kConnectDevice,
+        localizedTitle: isDeviceConnected ? l10n.deviceSettings : l10n.connectDevice,
+      ),
+      if (isDeviceConnected)
+        ShortcutItem(
+          type: isMuted ? _kUnmute : _kMute,
+          localizedTitle: isMuted ? l10n.phoneUnmute : l10n.mute,
+        ),
+      ShortcutItem(type: _kVoiceMode, localizedTitle: l10n.voiceMode),
+      ShortcutItem(type: _kAskOmi, localizedTitle: l10n.quickActionAskOmi),
+      ShortcutItem(type: _kAddTask, localizedTitle: l10n.addTask),
+    ];
+
+    final projection = items.map((item) => (item.type, item.localizedTitle)).toList();
+    if (listEquals(projection, _publishedShortcuts)) return;
+    _publishedShortcuts = projection;
+    _failedShortcutProjections.clear();
+    _shortcutRetries = 0;
+    _shortcutRetryTimer?.cancel();
+    _shortcutRetryTimer = null;
+    _quickActions.setShortcutItems(items).catchError((Object error, StackTrace stack) {
+      FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
+      // A newer projection took over publication while this call was in
+      // flight: the failure is superseded. Re-arming the obsolete projection
+      // here would let its retry overwrite the current shortcuts with stale
+      // connect/mute actions, so ignore it entirely.
+      if (!listEquals(projection, _publishedShortcuts ?? const <(String, String)>[])) {
+        return;
+      }
+      // This call still owns publication. Keep the dedupe cache clear so any
+      // natural later update republishes...
+      _publishedShortcuts = null;
+      // ...and schedule a bounded retry in case quiet wiring never calls back.
+      // The retry must outlive the cache clearing above: it aborts only when a
+      // newer projection has taken over publication.
+      _failedShortcutProjections.add(projection);
+      _scheduleShortcutRetry(items, projection);
+    });
+  }
+
+  /// Re-publishes a failed publication after a short delay. Aborts once a
+  /// newer projection owns publication or the attempt budget is exhausted;
+  /// any successful publish cancels the pending retry.
+  void _scheduleShortcutRetry(List<ShortcutItem> items, List<(String, String)> projection) {
+    if (_shortcutRetries >= _maxShortcutRetries) return;
+    _shortcutRetries++;
+    _shortcutRetryTimer = Timer(const Duration(seconds: 5), () {
+      _shortcutRetryTimer = null;
+      // The failed publication cleared the dedupe cache, so compare against
+      // the retry-eligible set instead: abort only when a newer projection
+      // has published since (which clears the failed set).
+      if (!_failedShortcutProjections.any((failed) => listEquals(failed, projection))) return;
+      _quickActions.setShortcutItems(items).then((_) {
+        // Success: restore the dedupe cache so unchanged later updates stay
+        // free. The guard skips the restore if a newer projection took over
+        // (its publish cleared the failed set) while this retry was in flight.
+        if (_failedShortcutProjections.any((failed) => listEquals(failed, projection))) {
+          _failedShortcutProjections.clear();
+          _publishedShortcuts = projection;
+        }
+      }).catchError((Object error, StackTrace stack) {
+        FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
+        _scheduleShortcutRetry(items, projection);
+      });
+    });
+  }
+
+  void _handleShortcut(String shortcutType) {
+    final navigator = globalNavigatorKey.currentState;
+    final context = globalNavigatorKey.currentContext;
+    if (navigator == null || context == null) return;
+
+    switch (shortcutType) {
+      case _kAddTask:
+        _navigateToTasksAndOpenSheet(navigator, context);
+        break;
+      // D1: chat is a normal pushed page everywhere.
+      case _kAskOmi:
+        openChatSheet(context, const ChatPage(isPivotBottom: false));
+        break;
+      case _kVoiceMode:
+        openChatSheet(context, const ChatPage(isPivotBottom: false, autoStartVoice: true));
+        break;
+      case _kMute:
+        _toggleMute(context, mute: true);
+        break;
+      case _kUnmute:
+        _toggleMute(context, mute: false);
+        break;
+      case _kConnectDevice:
+        Provider.of<DeviceProvider>(context, listen: false).initiateConnection('QuickActions');
+        routeToPage(context, const DeviceSettings());
+        break;
+      case _kDeviceSettings:
+        routeToPage(context, const DeviceSettings());
+        break;
+    }
+  }
+
+  void _navigateToTasksAndOpenSheet(NavigatorState navigator, BuildContext context) {
+    // The Tasks tab lives in the Home underneath; show it before opening the sheet over it.
+    navigator.popUntil((route) => route.isFirst);
+    Provider.of<HomeProvider>(context, listen: false).setIndex(HomeProvider.tasksTab);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = globalNavigatorKey.currentContext;
+      if (ctx == null) return;
+      // The guarded editor: swipe-down with an unsaved draft asks before discarding.
+      showActionItemFormSheet(ctx);
+    });
+  }
+
+  void _toggleMute(BuildContext context, {required bool mute}) {
+    final captureProvider = Provider.of<CaptureProvider>(context, listen: false);
+    if (mute) {
+      captureProvider.pauseCapture();
+    } else {
+      captureProvider.resumeCapture();
+    }
+  }
+}

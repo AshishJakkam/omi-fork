@@ -1,0 +1,388 @@
+import 'dart:async';
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+
+import 'package:omi/ui/omi_tokens.dart';
+
+import 'package:provider/provider.dart';
+
+import 'package:omi/models/voice_question_result.dart';
+import 'package:omi/gen/assets.gen.dart';
+import 'package:omi/providers/device_onboarding_provider.dart';
+import 'package:omi/pages/onboarding/interactive_device_onboarding/widgets/onboarding_step_scaffold.dart';
+import 'package:omi/utils/l10n_extensions.dart';
+
+String _stripMarkdown(String text) {
+  return text
+      .replaceAllMapped(RegExp(r'\*\*(.+?)\*\*'), (m) => m[1]!)
+      .replaceAllMapped(RegExp(r'\*(.+?)\*'), (m) => m[1]!)
+      .replaceAllMapped(RegExp(r'__(.+?)__'), (m) => m[1]!)
+      .replaceAllMapped(RegExp(r'_(.+?)_'), (m) => m[1]!)
+      .replaceAllMapped(RegExp(r'~~(.+?)~~'), (m) => m[1]!)
+      .replaceAllMapped(RegExp(r'`(.+?)`'), (m) => m[1]!);
+}
+
+class SinglePressStep extends StatefulWidget {
+  final VoidCallback onComplete;
+
+  const SinglePressStep({super.key, required this.onComplete});
+
+  @override
+  State<SinglePressStep> createState() => _SinglePressStepState();
+}
+
+class _SinglePressStepState extends State<SinglePressStep> with TickerProviderStateMixin {
+  late AnimationController _animController;
+  late AnimationController _bounceController;
+
+  bool _wasListening = false;
+  bool _showPressAgain = false;
+  Timer? _pressAgainTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+    _bounceController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _pressAgainTimer?.cancel();
+    _animController.dispose();
+    _bounceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<DeviceOnboardingProvider>(
+      builder: (context, provider, _) {
+        if (provider.voiceSessionActive && !_wasListening) {
+          _wasListening = true;
+          _bounceController.stop();
+          // Give the user a few seconds to speak before nudging the second press.
+          _pressAgainTimer?.cancel();
+          _pressAgainTimer = Timer(const Duration(seconds: 3), () {
+            if (mounted) setState(() => _showPressAgain = true);
+          });
+        } else if (!provider.voiceSessionActive && _wasListening) {
+          _wasListening = false;
+          _pressAgainTimer?.cancel();
+          _showPressAgain = false;
+        }
+
+        final listening = provider.voiceSessionActive;
+        final waiting = !listening && !provider.questionSent && provider.aiResponse == null;
+        final String title;
+        final String subtitle;
+        if (provider.aiResponse != null || provider.questionSent) {
+          title = context.l10n.deviceOnboardingAskQuestionTitle;
+          subtitle = '';
+        } else if (listening) {
+          title = context.l10n.deviceOnboardingAskNowTitle;
+          subtitle = context.l10n.deviceOnboardingAskNowSubtitle;
+        } else {
+          title = context.l10n.deviceOnboardingPressButtonTitle;
+          subtitle = context.l10n.deviceOnboardingPressButtonSubtitle;
+        }
+        assert(waiting || listening || provider.questionSent || provider.aiResponse != null);
+
+        return OnboardingStepScaffold(
+          title: title,
+          subtitle: subtitle,
+          content: Column(children: [const Spacer(flex: 1), _buildContent(provider), const Spacer(flex: 2)]),
+          bottomAction: provider.aiResponse != null ? OnboardingContinueButton(onPressed: widget.onComplete) : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildContent(DeviceOnboardingProvider provider) {
+    // Response received
+    if (provider.aiResponse != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: OmiColors.surface1, borderRadius: BorderRadius.circular(20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (provider.userQuestion != null && provider.userQuestion!.isNotEmpty) ...[
+              Text(
+                provider.userQuestion!,
+                style: TextStyle(color: OmiColors.textSecondary, fontSize: 14, height: 1.3),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              Divider(height: 1, color: OmiColors.border),
+              const SizedBox(height: 12),
+            ],
+            Text(
+              _stripMarkdown(provider.aiResponse!),
+              style: TextStyle(color: OmiColors.textPrimary, fontSize: 16, height: 1.5),
+              maxLines: 10,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Processing
+    if (provider.questionSent) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        decoration: BoxDecoration(color: OmiColors.surface1, borderRadius: BorderRadius.circular(20)),
+        child: Column(
+          children: [
+            AnimatedBuilder(
+              animation: _animController,
+              builder: (context, _) {
+                return ShaderMask(
+                  shaderCallback: (bounds) {
+                    return LinearGradient(
+                      colors: [
+                        OmiColors.textPrimary.withValues(alpha: 0.3),
+                        OmiColors.textPrimary,
+                        OmiColors.textPrimary.withValues(alpha: 0.3),
+                      ],
+                      stops: [
+                        (_animController.value - 0.3).clamp(0.0, 1.0),
+                        _animController.value,
+                        (_animController.value + 0.3).clamp(0.0, 1.0),
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ).createShader(bounds);
+                  },
+                  child: Text(
+                    context.l10n.deviceOnboardingProcessingQuestion,
+                    style: TextStyle(color: OmiColors.textPrimary, fontSize: 17, fontWeight: FontWeight.w500),
+                  ),
+                );
+              },
+            ),
+            if (provider.userQuestion != null && provider.userQuestion!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                provider.userQuestion!,
+                style: TextStyle(color: OmiColors.textSecondary, fontSize: 14, fontStyle: FontStyle.italic),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    // Dropped empty or came back with no speech detected — invite a retry
+    // instead of leaving the user stuck on "Processing" forever.
+    if (provider.questionFailed) {
+      return Column(
+        children: [
+          _buildOmiWithBounce(),
+          const SizedBox(height: 24),
+          Text(
+            switch (provider.questionFailure) {
+              VoiceQuestionFailure.noSpeech => context.l10n.voiceQuestionNoSpeech,
+              VoiceQuestionFailure.quota => context.l10n.chatLimitReachedUpgrade,
+              _ => context.l10n.chatReplyFailed,
+            },
+            style: OmiType.footnote.copyWith(color: OmiColors.textSecondary, fontWeight: FontWeight.w500),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      );
+    }
+
+    // Listening — Omi with pulsating circles + waveform
+    if (provider.voiceSessionActive) {
+      return Column(
+        children: [
+          _buildOmiWithPulse(),
+          const SizedBox(height: 24),
+          AnimatedBuilder(
+            animation: _animController,
+            builder: (context, _) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF4CAF50).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.mic, color: Color(0xFF4CAF50), size: 22),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: CustomPaint(
+                        painter: _StaticWaveformPainter(
+                          phase: _animController.value * 2 * pi * 3,
+                          color: const Color(0xFF4CAF50).withValues(alpha: 0.5),
+                        ),
+                        size: const Size(double.infinity, 28),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(
+                      context.l10n.deviceOnboardingListening,
+                      style: const TextStyle(color: Color(0xFF4CAF50), fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          AnimatedOpacity(
+            opacity: _showPressAgain ? 1 : 0,
+            duration: const Duration(milliseconds: 300),
+            child: _buildPressPill(context.l10n.deviceOnboardingPressAgainHint),
+          ),
+        ],
+      );
+    }
+
+    // Waiting — Omi with bounce click animation and an explicit "press once" cue
+    return Column(
+      children: [
+        _buildOmiWithBounce(),
+        const SizedBox(height: 24),
+        _buildPressPill('1×'),
+      ],
+    );
+  }
+
+  Widget _buildPressPill(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(color: OmiColors.textPrimary, borderRadius: OmiRadius.pillAll),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.touch_app_rounded, color: OmiColors.surface0, size: 20),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: OmiType.subhead.copyWith(color: OmiColors.surface0, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOmiWithPulse() {
+    final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+    const imageSize = 140.0;
+    const containerSize = imageSize + 120.0;
+
+    return AnimatedBuilder(
+      animation: _animController,
+      builder: (context, child) {
+        return SizedBox(
+          width: containerSize,
+          height: containerSize,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              for (int i = 0; i < 3; i++) _buildPulseCircle(i, imageSize, containerSize),
+              Image.asset(
+                Assets.images.omiWithoutRope.path,
+                height: imageSize,
+                width: imageSize,
+                cacheHeight: (imageSize * pixelRatio).round(),
+                cacheWidth: (imageSize * pixelRatio).round(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPulseCircle(int index, double imageSize, double containerSize) {
+    final progress = (_animController.value + index * 0.33) % 1.0;
+    final diameter = imageSize + (containerSize - imageSize) * progress;
+    final opacity = (1.0 - progress).clamp(0.0, 0.25);
+
+    return Container(
+      width: diameter,
+      height: diameter,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: OmiColors.textPrimary.withValues(alpha: opacity), width: 1.5),
+      ),
+    );
+  }
+
+  Widget _buildOmiWithBounce() {
+    final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+    const imageSize = 140.0;
+
+    return AnimatedBuilder(
+      animation: _bounceController,
+      builder: (context, _) {
+        final t = _bounceController.value;
+        // 0.0-0.3: scale down, 0.3-0.5: bounce back, 0.5-1.0: rest
+        double scale;
+        if (t < 0.3) {
+          scale = 1.0 - 0.1 * (t / 0.3);
+        } else if (t < 0.5) {
+          scale = 0.9 + 0.1 * ((t - 0.3) / 0.2);
+        } else {
+          scale = 1.0;
+        }
+
+        return Transform.scale(
+          scale: scale,
+          child: Image.asset(
+            Assets.images.omiWithoutRope.path,
+            height: imageSize,
+            width: imageSize,
+            cacheHeight: (imageSize * pixelRatio).round(),
+            cacheWidth: (imageSize * pixelRatio).round(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StaticWaveformPainter extends CustomPainter {
+  final double phase;
+  final Color color;
+
+  _StaticWaveformPainter({required this.phase, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final path = Path();
+    final midY = size.height / 2;
+    for (double x = 0; x < size.width; x += 1) {
+      final n = x / size.width;
+      final ampMod = 0.6 + 0.4 * sin(phase);
+      final y = midY + sin(n * 4 * pi) * 8 * ampMod + sin(n * 11 * pi) * 4 * ampMod;
+      if (x == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_StaticWaveformPainter oldDelegate) => phase != oldDelegate.phase;
+}
