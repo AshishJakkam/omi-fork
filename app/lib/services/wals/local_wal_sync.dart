@@ -1755,6 +1755,51 @@ class LocalWalSyncImpl with WidgetsBindingObserver implements LocalWalSync {
     await _saveWalsToFile(generation);
   }
 
+  /// Whether [wal] may be moved off its current transcription path.
+  ///
+  /// Only recordings that have never left the phone qualify: nothing was
+  /// uploaded (`miss`, no `jobId`), nothing is transcribed yet, and no on-device
+  /// upload is mid-flight. Audio genuinely captured on-device is never released
+  /// back to the cloud, because that copy may be the only one.
+  @visibleForTesting
+  static bool shouldRouteToProvider(Wal wal, {required bool onDevice}) {
+    if (wal.capturedOnDeviceOnly == true && !onDevice) return false;
+    if (wal.onDeviceOnly == onDevice) return false;
+    if (wal.storage != WalStorage.disk) return false;
+    if (wal.status != WalStatus.miss) return false;
+    if (wal.onDeviceConversation != null) return false;
+    if (wal.onDevicePreparedUpload != null) return false;
+    if (wal.jobId != null) return false;
+    return true;
+  }
+
+  /// Route never-sent recordings by the provider the user has selected *now*.
+  ///
+  /// `onDeviceOnly` is stamped when a recording is captured, so switching the
+  /// transcription provider never reached audio that already existed: the
+  /// backlog stayed on the cloud path and kept uploading (and billing) through
+  /// cloud STT, or sat unsent because the plan's minutes were exhausted.
+  ///
+  /// Returns how many recordings changed side.
+  Future<int> routeUnsentRecordingsToProvider({required bool onDevice}) async {
+    final generation = _sessionGeneration;
+    var moved = 0;
+    for (final wal in _wals) {
+      if (!shouldRouteToProvider(wal, onDevice: onDevice)) continue;
+      wal.onDeviceOnly = onDevice;
+      moved++;
+    }
+    if (moved > 0) {
+      await _saveWalsToFile(generation);
+      _notifyUpdated(generation);
+      DebugLogManager.logInfo('Routed unsent recordings to the active transcription provider', {
+        'count': moved,
+        'onDevice': onDevice,
+      });
+    }
+    return moved;
+  }
+
   /// Re-arm recordings that spent their transient retry budget when the
   /// network returns. Permanent audio/lookback failures use terminal statuses
   /// and are intentionally untouched.

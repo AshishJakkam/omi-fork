@@ -136,6 +136,9 @@ class OnDeviceRunner with WidgetsBindingObserver {
         _publishedGeneration = generation;
       }
       await intakeOnDeviceOverflow(sync);
+      // Must run before the pending set is computed: a provider switch has to
+      // reach audio that already existed, not only audio captured afterwards.
+      await sync.routeUnsentRecordingsToProvider(onDevice: controller.settings.enabled);
       final all = await sync.getAllWals();
       for (final wal in all.where((w) => w.onDeviceConversation != null)) {
         if (generation != sync.sessionGeneration || _cancelled) return;

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:omi/backend/schema/bt_device/bt_device.dart';
 import 'package:omi/pages/conversations/sync_pending_work.dart';
+import 'package:omi/services/wals/local_wal_sync.dart';
 import 'package:omi/services/wals/wal.dart';
 
 /// Selecting an on-device transcription provider must apply to the whole
@@ -59,6 +60,84 @@ void main() {
           reason: 'only a missed cloud-path recording is pending (status=$status)',
         );
       }
+    });
+  });
+
+  group('LocalWalSyncImpl.shouldRouteToProvider', () {
+    Wal unsent({bool onDeviceOnly = false, bool? capturedOnDeviceOnly}) {
+      return Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 30,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: 'audio_1700000000.bin',
+        onDeviceOnly: onDeviceOnly,
+        capturedOnDeviceOnly: capturedOnDeviceOnly,
+      );
+    }
+
+    test('claims a legacy unsent recording when the provider is on-device', () {
+      expect(LocalWalSyncImpl.shouldRouteToProvider(unsent(), onDevice: true), isTrue);
+    });
+
+    test('leaves an already-on-device recording alone', () {
+      expect(LocalWalSyncImpl.shouldRouteToProvider(unsent(onDeviceOnly: true), onDevice: true), isFalse);
+    });
+
+    test('never releases audio that was genuinely captured on-device', () {
+      // Its phone copy may be the only one; the cloud path must not claim it.
+      final born = unsent(onDeviceOnly: true, capturedOnDeviceOnly: true);
+
+      expect(LocalWalSyncImpl.shouldRouteToProvider(born, onDevice: false), isFalse);
+    });
+
+    test('releases a recording we adopted earlier when on-device is switched off', () {
+      final adopted = unsent(onDeviceOnly: true, capturedOnDeviceOnly: false);
+
+      expect(LocalWalSyncImpl.shouldRouteToProvider(adopted, onDevice: false), isTrue);
+    });
+
+    test('refuses audio that already reached the server', () {
+      final uploaded = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 30,
+        status: WalStatus.uploaded,
+        storage: WalStorage.disk,
+        filePath: 'audio_1700000000.bin',
+      );
+      expect(LocalWalSyncImpl.shouldRouteToProvider(uploaded, onDevice: true), isFalse);
+    });
+
+    test('refuses audio with a server job, a transcript, or an upload in flight', () {
+      final withJob = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 30,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: 'audio_1700000000.bin',
+        jobId: 'job-1',
+      );
+      final transcribed = unsent()
+        ..onDeviceConversation = const {'id': 'conv-1'};
+      final preparing = unsent()
+        ..onDevicePreparedUpload = const {'id': 'upload-1'};
+
+      expect(LocalWalSyncImpl.shouldRouteToProvider(withJob, onDevice: true), isFalse);
+      expect(LocalWalSyncImpl.shouldRouteToProvider(transcribed, onDevice: true), isFalse);
+      expect(LocalWalSyncImpl.shouldRouteToProvider(preparing, onDevice: true), isFalse);
+    });
+
+    test('refuses audio that is not on disk', () {
+      final inMemory = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.opus,
+        seconds: 30,
+        status: WalStatus.miss,
+      );
+      expect(LocalWalSyncImpl.shouldRouteToProvider(inMemory, onDevice: true), isFalse);
     });
   });
 }
