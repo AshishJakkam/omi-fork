@@ -11,6 +11,7 @@ import 'package:omi/backend/preferences.dart';
 import 'package:omi/backend/schema/conversation.dart';
 import 'package:omi/backend/schema/structured.dart';
 import 'package:omi/backend/schema/transcript_segment.dart';
+import 'package:omi/services/capture/local_stt_custody.dart';
 import 'package:omi/services/on_device/on_device_overflow_intake.dart';
 import 'on_device_segment_upload.dart';
 import 'on_device_segment_snapshot.dart';
@@ -136,9 +137,11 @@ class OnDeviceRunner with WidgetsBindingObserver {
         _publishedGeneration = generation;
       }
       await intakeOnDeviceOverflow(sync);
-      // Must run before the pending set is computed: a provider switch has to
-      // reach audio that already existed, not only audio captured afterwards.
-      await sync.routeUnsentRecordingsToProvider(onDevice: controller.settings.enabled);
+      // Route by the same rule capture uses, so the backlog and new audio can
+      // never end up on different paths. Must run before the pending set is
+      // computed: a provider switch has to reach audio that already existed.
+      final onDeviceRoute = LocalSttCustody.keepsPhoneAudio || controller.shouldKeepAudioLocal;
+      await sync.routeUnsentRecordingsToProvider(onDevice: onDeviceRoute);
       final all = await sync.getAllWals();
       for (final wal in all.where((w) => w.onDeviceConversation != null)) {
         if (generation != sync.sessionGeneration || _cancelled) return;
