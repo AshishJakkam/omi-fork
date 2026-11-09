@@ -74,21 +74,40 @@ workflows:
           echo "--- built app ---"
           ls -la build/ios/iphoneos/
 
-      - name: Package unsigned ipa
+      - name: Package unsigned ipa (free-tier safe)
         script: |
           set -e
           cd build/ios/iphoneos
+
+          APP=Runner.app
+
+          # Free ("Personal Team") provisioning cannot grant App Groups or Push,
+          # and every nested bundle needs its own App ID from a 10-per-week quota.
+          # Sideloadly has to sign each nested bundle too, which is the most common
+          # place a sideload fails. Strip them so the ipa is a single, flat app.
+          echo "--- nested bundles before strip ---"
+          ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns)"
+          rm -rf "$APP/PlugIns" "$APP/Watch" "$APP/com.apple.WatchPlaceholder"
+
+          # The watch app can also be embedded directly by the watch target.
+          find "$APP" -maxdepth 2 -name '*.appex' -type d -exec rm -rf {} + 2>/dev/null || true
+
+          echo "--- nested bundles after strip ---"
+          ls -la "$APP/PlugIns" 2>/dev/null || echo "(none - good)"
+
+          echo "Bundle id baked into the app:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          echo "Display name:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist" || echo "(none)"
+
           rm -rf Payload OmiFork.ipa
           mkdir -p Payload
-          cp -R Runner.app Payload/
+          cp -R "$APP" Payload/
           zip -qry OmiFork.ipa Payload
           ls -lh OmiFork.ipa
-          echo "Bundle id baked into the app:"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Runner.app/Info.plist
 
     artifacts:
       - app/build/ios/iphoneos/OmiFork.ipa
-      - app/build/ios/iphoneos/Runner.app
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
