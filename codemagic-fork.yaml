@@ -26,6 +26,14 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: com.omi.fork
+        # The dev flavour uses the local_dev profile, which requires a loopback
+        # or private-network API. Google Sign-In cannot work in a fork (Omi's
+        # OAuth client is bound to their bundle id), so the fork talks to a
+        # backend you run yourself. Change these in the Codemagic UI when your
+        # LAN address changes; both are baked in at build time.
+        LOCAL_HOST: 192.168.1.8
+        LOCAL_API_PORT: 8000
+        AUTH_EMULATOR_PORT: 9099
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -41,8 +49,9 @@ workflows:
         script: |
           set -e
           if [ ! -f .env ]; then cp .env.template .env; fi
-          # Empty placeholders keep Env parsing happy; no provider calls are made
-          # on the paths under test.
+          # The build overrides the API base with --dart-define, so the value here
+          # only has to parse. Kept as the public default so a release build
+          # without the defines still behaves like upstream.
           grep -q '^API_BASE_URL=' .env || echo 'API_BASE_URL=https://api.omi.me/' >> .env
 
       - name: Install dev Firebase plist
@@ -70,7 +79,12 @@ workflows:
       - name: Build (no codesign)
         script: |
           set -e
-          flutter build ios --release --no-codesign --flavor dev
+          echo "Backend will be http://$LOCAL_HOST:$LOCAL_API_PORT"
+          echo "Auth emulator will be $LOCAL_HOST:$AUTH_EMULATOR_PORT"
+          flutter build ios --release --no-codesign --flavor dev \
+            --dart-define=OMI_API_BASE_URL=http://$LOCAL_HOST:$LOCAL_API_PORT \
+            --dart-define=OMI_FIREBASE_AUTH_EMULATOR_HOST=$LOCAL_HOST \
+            --dart-define=OMI_FIREBASE_AUTH_EMULATOR_PORT=$AUTH_EMULATOR_PORT
           echo "--- built app ---"
           ls -la build/ios/iphoneos/
 
