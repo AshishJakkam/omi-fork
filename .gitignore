@@ -327,3 +327,7 @@ tunnel.log*
 
 tunnel.err
 firebase.log.err
+
+# Self-host deploy secrets: service-account JSON and any key material.
+backend/secrets/*
+!backend/secrets/.gitkeep
