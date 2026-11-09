@@ -91,6 +91,96 @@ void main() {
     expect(isAutoUploadEligible(restored), isFalse);
   });
 
+  // The reported symptom: a backlog recorded while the cloud provider was
+  // selected ("1250 more recordings waiting for processing") never reaches the
+  // on-device runner, because onDeviceOnly was stamped at capture time. Each
+  // item below starts on the cloud path and must be adopted by the run.
+  test('a backlog recorded on the cloud path is adopted by the on-device run', () async {
+    await recording();
+    final backlog = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.pcm16,
+        seconds: 61,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: 'synthetic.bin');
+    expect(backlog.onDeviceOnly, isFalse, reason: 'captured under the cloud provider');
+
+    final sync = LocalWalSyncImpl(_Listener());
+    sync.testWals = [backlog];
+    final controller = OnDeviceTranscriptionController(model: FakeOnDeviceModel(), power: FakePhonePowerSource());
+    controller.debugActivate(settings: const OnDeviceSettings(enabled: true, keepEverythingOnDevice: true));
+    controller.updateEntitlement(atCap: true, paid: false);
+    expect(controller.shouldKeepAudioLocal, isTrue, reason: 'the same gate capture uses');
+
+    var calls = 0;
+    final rows = <ServerConversation>[];
+    final runner = OnDeviceRunner(
+        sync: sync,
+        controller: controller,
+        publish: rows.add,
+        transcribeChunk: (bytes, language) async {
+          calls++;
+          final duration = (bytes.length - 44) / 32000;
+          return OnDeviceBatchResult(
+              engine: 'synthetic',
+              text: 'Adopted backlog sentence.',
+              words: [OnDeviceWord('Adopted backlog sentence.', 0, duration)]);
+        });
+
+    await runner.run(transcribeNow: true);
+
+    expect(calls, 3, reason: 'the 61s backlog was transcribed on-device, not queued for cloud STT');
+    expect(rows, hasLength(1));
+    final all = await sync.getAllWals();
+    expect(all.single.onDeviceOnly, isTrue, reason: 'adopted durably');
+    expect(all.single.capturedOnDeviceOnly, isNot(true),
+        reason: 'adoption must not rewrite the capture-time provenance');
+
+    runner.dispose();
+    controller.dispose();
+  });
+
+  test('a backlog stays on the cloud path when on-device is not the active route', () async {
+    await recording();
+    final backlog = Wal(
+        timerStart: 1700000000,
+        codec: BleAudioCodec.pcm16,
+        seconds: 61,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: 'synthetic.bin');
+
+    final sync = LocalWalSyncImpl(_Listener());
+    sync.testWals = [backlog];
+    final controller = OnDeviceTranscriptionController(model: FakeOnDeviceModel(), power: FakePhonePowerSource());
+    controller.debugActivate(settings: const OnDeviceSettings(enabled: true, keepEverythingOnDevice: true));
+    // Not at cap and not paid: shouldKeepAudioLocal is false, so capture would
+    // have sent new audio to the cloud. The backlog must not be stolen from it.
+    controller.updateEntitlement(atCap: false, paid: false);
+    expect(controller.shouldKeepAudioLocal, isFalse);
+
+    var calls = 0;
+    final runner = OnDeviceRunner(
+        sync: sync,
+        controller: controller,
+        publish: (_) {},
+        transcribeChunk: (bytes, language) async {
+          calls++;
+          return const OnDeviceBatchResult(
+              engine: 'synthetic', text: 'x', words: [OnDeviceWord('x', 0, 1)]);
+        });
+
+    await runner.run(transcribeNow: true);
+
+    expect(calls, 0, reason: 'cloud-path audio stays on the cloud path');
+    final all = await sync.getAllWals();
+    expect(all.single.onDeviceOnly, isFalse);
+
+    runner.dispose();
+    controller.dispose();
+  });
+
   test('runner commits a transcript-only conversation and retries safely across runs', () async {
     await recording();
     final wal = Wal(

@@ -1755,16 +1755,21 @@ class LocalWalSyncImpl with WidgetsBindingObserver implements LocalWalSync {
     await _saveWalsToFile(generation);
   }
 
-  /// Whether [wal] may be moved off its current transcription path.
+  /// Whether [wal] may be moved off the cloud path and onto the on-device one.
+  ///
+  /// Adoption is deliberately one-way. Releasing on-device audio back to the
+  /// cloud is never safe: the phone copy may be the only one, and the cloud path
+  /// would then upload audio the user asked to keep local. The fix this serves is
+  /// also one-directional — audio recorded before the provider switch has to
+  /// *join* the on-device queue, not leave it.
   ///
   /// Only recordings that have never left the phone qualify: nothing was
   /// uploaded (`miss`, no `jobId`), nothing is transcribed yet, and no on-device
-  /// upload is mid-flight. Audio genuinely captured on-device is never released
-  /// back to the cloud, because that copy may be the only one.
+  /// upload is mid-flight.
   @visibleForTesting
   static bool shouldRouteToProvider(Wal wal, {required bool onDevice}) {
-    if (wal.capturedOnDeviceOnly == true && !onDevice) return false;
-    if (wal.onDeviceOnly == onDevice) return false;
+    if (!onDevice) return false;
+    if (wal.onDeviceOnly) return false;
     if (wal.storage != WalStorage.disk) return false;
     if (wal.status != WalStatus.miss) return false;
     if (wal.onDeviceConversation != null) return false;
@@ -1773,20 +1778,21 @@ class LocalWalSyncImpl with WidgetsBindingObserver implements LocalWalSync {
     return true;
   }
 
-  /// Route never-sent recordings by the provider the user has selected *now*.
+  /// Adopt never-sent recordings into on-device custody when that is the active
+  /// route.
   ///
   /// `onDeviceOnly` is stamped when a recording is captured, so switching the
   /// transcription provider never reached audio that already existed: the
   /// backlog stayed on the cloud path and kept uploading (and billing) through
   /// cloud STT, or sat unsent because the plan's minutes were exhausted.
   ///
-  /// Returns how many recordings changed side.
+  /// Returns how many recordings joined the on-device queue.
   Future<int> routeUnsentRecordingsToProvider({required bool onDevice}) async {
     final generation = _sessionGeneration;
     var moved = 0;
     for (final wal in _wals) {
       if (!shouldRouteToProvider(wal, onDevice: onDevice)) continue;
-      wal.onDeviceOnly = onDevice;
+      wal.onDeviceOnly = true;
       moved++;
     }
     if (moved > 0) {

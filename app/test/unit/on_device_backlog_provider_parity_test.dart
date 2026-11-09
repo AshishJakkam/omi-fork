@@ -127,17 +127,14 @@ void main() {
       expect(LocalWalSyncImpl.shouldRouteToProvider(unsent(onDeviceOnly: true), onDevice: true), isFalse);
     });
 
-    test('never releases audio that was genuinely captured on-device', () {
-      // Its phone copy may be the only one; the cloud path must not claim it.
+    test('never releases on-device audio back to the cloud', () {
+      // The phone copy may be the only one, and the cloud path would upload
+      // audio the user asked to keep local. Adoption is one-way.
       final born = unsent(onDeviceOnly: true, capturedOnDeviceOnly: true);
+      final adoptedEarlier = unsent(onDeviceOnly: true, capturedOnDeviceOnly: false);
 
       expect(LocalWalSyncImpl.shouldRouteToProvider(born, onDevice: false), isFalse);
-    });
-
-    test('releases a recording we adopted earlier when on-device is switched off', () {
-      final adopted = unsent(onDeviceOnly: true, capturedOnDeviceOnly: false);
-
-      expect(LocalWalSyncImpl.shouldRouteToProvider(adopted, onDevice: false), isTrue);
+      expect(LocalWalSyncImpl.shouldRouteToProvider(adoptedEarlier, onDevice: false), isFalse);
     });
 
     test('refuses audio that already reached the server', () {
@@ -235,7 +232,7 @@ void main() {
 
       final moved = await sync.routeUnsentRecordingsToProvider(onDevice: false);
 
-      expect(moved, 0, reason: 'that phone copy may be the only one');
+      expect(moved, 0, reason: 'adoption is one-way; that phone copy may be the only one');
       final index = await WalFileManager.loadWals();
       expect(index.first.onDeviceOnly, isTrue);
     });
