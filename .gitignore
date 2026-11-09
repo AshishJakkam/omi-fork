@@ -319,3 +319,11 @@ firebase.log*
 
 # whisper model weights
 ggml-*.bin
+
+# iphone capture output
+ip*.png
+tunnel.log*
+
+
+tunnel.err
+firebase.log.err
