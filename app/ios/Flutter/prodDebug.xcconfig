@@ -9,3 +9,12 @@ GOOGLE_REVERSE_CLIENT_ID=com.googleusercontent.apps.1031333818730-dusn243nct6i5r
 ASSET_PREFIX=prod
 BUNDLE_NAME=Omi
 BUNDLE_DISPLAY_NAME=Omi
+// --- fork identity (see ios/Flutter/devDebug.xcconfig for the rationale) ---
+// Distinct bundle id + callback scheme so this build coexists with the App Store
+// app. Sign-in goes through the backend's web OAuth flow (USE_WEB_AUTH=true),
+// which accepts any registered custom scheme, so no Google client of our own is
+// needed and the phone needs no local backend.
+APP_BUNDLE_IDENTIFIER=com.omi.fork
+AUTH_CALLBACK_SCHEME=omifork
+BUNDLE_NAME=Omi Fork
+BUNDLE_DISPLAY_NAME=Omi Fork
