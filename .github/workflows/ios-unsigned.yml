@@ -94,11 +94,21 @@ jobs:
 
       - name: Generate iOS custom config
         run: |
+          set -e
           # Writes ios/Flutter/Custom.xcconfig. prodRelease.xcconfig includes it and
           # then overrides the bundle id and callback scheme, so our identity wins.
-          bash scripts/generate_ios_custom_config.sh ios/Runner/GoogleService-Info.plist ios/Flutter/ || true
+          #
+          # Read the plist from ios/Config/Prod, not ios/Runner: the install script
+          # populates Config/, while Runner/ is only filled in later by the "Copy
+          # Google Plist file" build phase. Pointing at the wrong one made the
+          # generator silently emit an empty GOOGLE_REVERSE_CLIENT_ID.
+          bash scripts/generate_ios_custom_config.sh ios/Config/Prod/GoogleService-Info.plist ios/Flutter/
           echo '--- Custom.xcconfig ---'
           cat ios/Flutter/Custom.xcconfig
+          grep -q 'GOOGLE_REVERSE_CLIENT_ID="com.googleusercontent.apps' ios/Flutter/Custom.xcconfig || {
+            echo "Custom.xcconfig has no reversed client id; the plist read failed" >&2
+            exit 1
+          }
 
       - name: Get packages
         run: flutter pub get
