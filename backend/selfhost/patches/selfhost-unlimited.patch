@@ -1,0 +1,109 @@
+﻿diff --git a/backend/tests/unit/test_selfhost_unlimited.py b/backend/tests/unit/test_selfhost_unlimited.py
+new file mode 100644
+index 0000000..d503604
+--- /dev/null
++++ b/backend/tests/unit/test_selfhost_unlimited.py
+@@ -0,0 +1,56 @@
++"""The self-host operator switch must be inert unless a deployment opts in.
++
++`OMI_SELFHOST_UNLIMITED` exists so a backend you run reports unlimited allowances and
++treats every plan as paid. That is the entire point of self-hosting: the plan catalog
++belongs to whoever operates the server. These cases pin both directions, because a
++switch that leaks into a deployment that did not set it would give away a product.
++"""
++
++import os
++
++import pytest
++
++from models.users import PlanType
++from utils import subscription
++
++
++@pytest.fixture(autouse=True)
++def _clear_flag(monkeypatch):
++    monkeypatch.delenv(subscription.SELFHOST_UNLIMITED_ENV, raising=False)
++
++
++def test_flag_off_leaves_the_free_plan_metered():
++    assert subscription.selfhost_unlimited_enabled() is False
++    assert subscription.is_paid_plan(PlanType.basic) is False
++
++    limits = subscription.get_plan_limits(PlanType.basic)
++    assert limits.transcription_seconds == 18000
++    assert limits.chat_questions_per_month == 30
++
++
++def test_flag_on_unlocks_every_allowance(monkeypatch):
++    monkeypatch.setenv(subscription.SELFHOST_UNLIMITED_ENV, 'true')
++
++    assert subscription.selfhost_unlimited_enabled() is True
++    # Every plan counts as paid, which is what stops the client offering an upgrade.
++    assert subscription.is_paid_plan(PlanType.basic) is True
++
++    limits = subscription.get_plan_limits(PlanType.basic)
++    # None is the catalog's spelling of "unlimited", so nothing is enforced as exhausted.
++    assert limits.transcription_seconds is None
++    assert limits.words_transcribed is None
++    assert limits.insights_gained is None
++    assert limits.chat_questions_per_month is None
++    assert limits.chat_cost_usd_per_month is None
++
++
++@pytest.mark.parametrize('value', ['1', 'true', 'TRUE', 'yes', 'on', ' true '])
++def test_truthy_spellings(monkeypatch, value):
++    monkeypatch.setenv(subscription.SELFHOST_UNLIMITED_ENV, value)
++    assert subscription.selfhost_unlimited_enabled() is True
++
++
++@pytest.mark.parametrize('value', ['', '0', 'false', 'off', 'no', 'enabled'])
++def test_everything_else_stays_off(monkeypatch, value):
++    monkeypatch.setenv(subscription.SELFHOST_UNLIMITED_ENV, value)
++    assert subscription.selfhost_unlimited_enabled() is False
+diff --git a/backend/utils/subscription.py b/backend/utils/subscription.py
+index ce0cff0..10b02a6 100644
+--- a/backend/utils/subscription.py
++++ b/backend/utils/subscription.py
+@@ -215,9 +215,24 @@ def get_trial_metadata(uid: str) -> TrialMetadata:
+ 
+ 
+ def is_paid_plan(plan: PlanType) -> bool:
++    if selfhost_unlimited_enabled():
++        return True
+     return plan in PAID_PLAN_TYPES
+ 
+ 
++# Opt-in for a deployment that runs its own backend (backend/selfhost). With this set,
++# every allowance resolves unlimited and every plan counts as paid, so the client stops
++# metering and stops showing upgrade prompts. Nothing is bypassed here: the plan catalog
++# belongs to whoever operates the server, and this is that operator's switch. It is
++# inert on any deployment that does not set it.
++SELFHOST_UNLIMITED_ENV = 'OMI_SELFHOST_UNLIMITED'
++_SELFHOST_TRUTHY = frozenset({'1', 'true', 'yes', 'on'})
++
++
++def selfhost_unlimited_enabled() -> bool:
++    return os.getenv(SELFHOST_UNLIMITED_ENV, '').strip().lower() in _SELFHOST_TRUTHY
++
++
+ def _configured_plan_price_id(plan: PlanType, interval: str) -> Optional[str]:
+     return os.getenv(PRIMARY_BILLING_ENV_VARS[plan][interval])
+ 
+@@ -1028,6 +1043,17 @@ def get_plan_limits(plan: PlanType) -> PlanLimits:
+     finite zero remains zero and is therefore enforced as exhausted.
+     """
+     plan = PlanType(plan)
++
++    if selfhost_unlimited_enabled():
++        # Every allowance unlimited. Both chat meters are left None rather than picking
++        # one, because this deployment meters neither questions nor cost.
++        return PlanLimits(
++            transcription_seconds=None,
++            words_transcribed=None,
++            insights_gained=None,
++            chat_questions_per_month=None,
++            chat_cost_usd_per_month=None,
++        )
+     chat_allocation = get_plan_allocation(plan, 'chat')
+     chat_limit = _effective_chat_limit(plan)
+     chat_questions: Optional[int] = None
