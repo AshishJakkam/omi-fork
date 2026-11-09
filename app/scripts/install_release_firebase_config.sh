@@ -43,6 +43,14 @@ install_file google-services.prod.json android/app/src/prod/google-services.json
 install_file google-services.dev.json android/app/src/dev/google-services.json
 install_file GoogleService-Info.prod.plist ios/Config/Prod/GoogleService-Info.plist
 install_file GoogleService-Info.dev.plist ios/Config/Dev/GoogleService-Info.plist
+# ios/Runner/GoogleService-Info.plist is a declared build input of the Runner
+# target's Resources phase. The "Copy Google Plist file" script phase that
+# copies Config -> Runner declares no outputs, so Xcode validates the file
+# exists BEFORE that phase runs and the build otherwise dies with
+#   Build input file cannot be found: .../ios/Runner/GoogleService-Info.plist
+# Seed it with the prod plist (Release-prod is the only configuration CI builds;
+# the copy phase then overwrites it with the same bytes).
+install_file GoogleService-Info.prod.plist ios/Runner/GoogleService-Info.plist
 
 require_project lib/firebase_options_prod.dart "projectId: 'based-hardware',"
 require_project lib/firebase_options_dev.dart "projectId: 'based-hardware-dev',"
@@ -50,5 +58,6 @@ require_project android/app/src/prod/google-services.json '"project_id": "based-
 require_project android/app/src/dev/google-services.json '"project_id": "based-hardware-dev",'
 require_project ios/Config/Prod/GoogleService-Info.plist '<string>based-hardware</string>'
 require_project ios/Config/Dev/GoogleService-Info.plist '<string>based-hardware-dev</string>'
+require_project ios/Runner/GoogleService-Info.plist '<string>based-hardware</string>'
 
 echo "Installed committed Firebase client config (prod: based-hardware, dev: based-hardware-dev)."
