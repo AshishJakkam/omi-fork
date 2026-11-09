@@ -13,6 +13,16 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="omi-beta" />
             </intent-filter>
+            <!-- Fork scheme: must match AppEnvironmentProfile.production.authCallbackScheme
+                 in Dart, which is what the app sends as redirect_uri and listens
+                 for. Kept separate from "omi" so this build and the Play Store app
+                 can both be installed and still receive their own callbacks. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="omifork" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

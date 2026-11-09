@@ -32,7 +32,13 @@ enum AppEnvironmentProfile {
     name: 'production',
     defaultApiBaseUrl: 'https://api.omi.me/',
     firebaseProjectId: 'based-hardware',
-    authCallbackScheme: 'omi',
+    // Fork-specific scheme. The App Store app owns "omi", and this scheme has to
+    // agree in three places: here (Dart sends redirect_uri and listens for the
+    // callback), the iOS xcconfig that registers it in Info.plist, and the
+    // Android prod manifest that declares the intent filter. With two apps
+    // installed, reusing "omi" would let iOS hand the callback to the other app
+    // and sign-in would hang.
+    authCallbackScheme: 'omifork',
     usesFirebaseAuthEmulator: false,
     allowsProductionData: true,
   );
