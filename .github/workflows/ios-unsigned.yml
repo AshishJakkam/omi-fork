@@ -1,0 +1,155 @@
+name: iOS unsigned ipa
+
+# Builds an UNSIGNED .ipa for the fork on a GitHub-hosted macOS runner.
+# Sideloadly re-signs it on Windows with a free Apple ID, so this workflow needs
+# no certificates, no provisioning profiles, no App Store Connect key and no
+# Apple Developer membership.
+#
+# Why GitHub Actions instead of Codemagic: the repo is already here, so this runs
+# with zero account setup. Private repos include macOS minutes on the free plan
+# (billed at 10x, so roughly 200 effective minutes a month; this build needs ~20).
+#
+# Identity, all agreeing with lib/env/environment_profile.dart and
+# ios/Flutter/prodRelease.xcconfig (guarded by fork_identity_consistency_test):
+#   bundle id         com.omi.fork          - App Store Omi keeps working
+#   callback scheme   omifork://auth/callback
+#   app group         none (empty entitlements, free-tier safe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-unsigned.yml'
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | tail -5
+          sw_vers
+
+      - name: Install Opus
+        run: |
+          # opus_flutter_ios links the system libopus.
+          brew install opus || brew upgrade opus
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.5'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Set up app .env
+        run: |
+          set -e
+          if [ ! -f .env ]; then cp .env.template .env; fi
+          set_env() {
+            key="$1"; value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i '' "s|^${key}=.*|${key}=${value}|" .env
+            else
+              echo "${key}=${value}" >> .env
+            fi
+          }
+          # USE_WEB_AUTH is compile-time: envied bakes .env into lib/env/*.g.dart
+          # during build_runner, so it must be set before that step. Without it the
+          # app uses the native Google SDK, whose client is bound to Omi's bundle
+          # id, and sign-in fails for a fork.
+          set_env API_BASE_URL "https://api.omi.me/"
+          set_env USE_WEB_AUTH "true"
+          echo '--- .env (secrets redacted) ---'
+          sed -E 's/(KEY|SECRET)=.*/\1=<redacted>/' .env
+
+      - name: Install production Firebase plist
+        run: |
+          cp setup/release-firebase/GoogleService-Info.prod.plist ios/Runner/GoogleService-Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' ios/Runner/GoogleService-Info.plist || true
+
+      - name: Generate iOS custom config
+        run: |
+          # Writes ios/Flutter/Custom.xcconfig. prodRelease.xcconfig includes it and
+          # then overrides the bundle id and callback scheme, so our identity wins.
+          bash scripts/generate_ios_custom_config.sh ios/Runner/GoogleService-Info.plist ios/Flutter/ || true
+          echo '--- Custom.xcconfig ---'
+          cat ios/Flutter/Custom.xcconfig
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Run build_runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Pod install
+        run: cd ios && pod install --repo-update
+
+      - name: Use free-tier entitlements
+        run: |
+          # Production entitlements ask for App Groups, Push, HealthKit, Hotspot,
+          # Wi-Fi info and Associated Domains. A free Apple ID cannot grant any of
+          # them. Background audio and on-device transcription need no entitlement,
+          # so ask for nothing and let any profile satisfy the build.
+          cp ios/Runner/RunnerRelease-fork.entitlements ios/Runner/RunnerRelease-prod.entitlements
+          cat ios/Runner/RunnerRelease-prod.entitlements
+
+      - name: Build (no codesign)
+        run: |
+          set -e
+          flutter build ios --release --no-codesign --flavor prod
+          ls -la build/ios/iphoneos/
+
+      - name: Package unsigned ipa
+        run: |
+          set -e
+          cd build/ios/iphoneos
+          APP=Runner.app
+
+          echo "--- nested bundles before strip ---"
+          ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns)"
+
+          # Every nested bundle needs its own App ID and its own signature, and a
+          # free team only gets 10 new App IDs a week. Strip them so the ipa is a
+          # single flat app that Sideloadly signs in one step.
+          rm -rf "$APP/PlugIns" "$APP/Watch" "$APP/com.apple.WatchPlaceholder"
+          find "$APP" -maxdepth 2 -name '*.appex' -type d -exec rm -rf {} + 2>/dev/null || true
+          echo "--- after strip ---"
+          ls -la "$APP/PlugIns" 2>/dev/null || echo "(none - good)"
+
+          echo "Bundle id:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          echo "Display name:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist" || true
+          echo "URL schemes:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$APP/Info.plist" | grep -A2 -i scheme || true
+
+          rm -rf Payload OmiFork.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry OmiFork.ipa Payload
+          ls -lh OmiFork.ipa
+
+      - name: Upload ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmiFork-ipa
+          path: app/build/ios/iphoneos/OmiFork.ipa
+          if-no-files-found: error
+          retention-days: 14
