@@ -1,0 +1,63 @@
+# Fly.io deployment for the self-hosted backend.
+#
+#   fly launch --no-deploy --name <your-app> --region bom
+#   fly volumes create omi_data --size 3 --region bom
+#   fly secrets import < backend/.env
+#   fly secrets set FIREBASE_AUTH_CREDENTIALS_PATH=/app/secrets/firebase-service-account.json
+#   fly deploy --dockerfile backend/selfhost/Dockerfile
+#
+# `bom` is Mumbai — the closest region to you, which matters because the phone talks to this
+# host for every sync and every on-device transcript upload.
+
+app = "CHANGE-ME-omi"
+primary_region = "bom"
+
+[build]
+  dockerfile = "backend/selfhost/Dockerfile"
+
+[env]
+  OMI_ENV_STAGE = "offline"
+  PROVIDER_MODE = "offline"
+  # Overridden by `fly secrets set BASE_API_URL=https://<your-app>.fly.dev`.
+  # No trailing slash: the backend appends "/v1/auth/callback/google".
+  BASE_API_URL = "https://CHANGE-ME-omi.fly.dev"
+
+[[mounts]]
+  # OMI_ENV_STAGE=offline stores uploads on the instance, so this volume is the data.
+  # Without it, every machine restart loses recordings that have not been transcribed yet.
+  source = "omi_data"
+  destination = "/app/syncing"
+
+[[mounts]]
+  # Holds the Firebase service-account JSON. Never bake it into the image.
+  source = "omi_secrets"
+  destination = "/app/secrets"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Long-lived WebSocket audio (/v4/listen) and SSE chat streams: do not let the proxy close
+  # idle connections, and do not run two machines against one SQLite-less filesystem volume.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  # 1 vCPU / 1 GB is enough for one user's on-device workloads: the heavy speech work happens
+  # on the phone, so this host mostly stores text and calls an LLM.
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024
+
+[checks.health]
+  type = "http"
+  port = 8080
+  path = "/docs"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "60s"
