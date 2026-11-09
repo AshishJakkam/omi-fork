@@ -1,17 +1,30 @@
-﻿# Self-hosting the Omi backend
+# Self-hosting the Omi backend
 
-Running your own backend is what removes the free-plan limits. Those limits are not in the app â€”
+Running your own backend is what removes the free-plan limits. Those limits are not in the app —
 they are values in a plan catalog this deployment owns:
 
 | Limit | Where it lives | Under self-host |
 |---|---|---|
-| 300 transcription minutes/month | `backend/config/plan_catalog_generated.py` (`basic` â†’ `transcription` â†’ `18000` seconds) | yours to set |
-| 30 chat questions/month | same file (`basic` â†’ `chat` â†’ `30`) | yours to set |
+| 300 transcription minutes/month | `backend/config/plan_catalog_generated.py` (`basic` -> `transcription` -> `18000` seconds) | yours to set |
+| 30 chat questions/month | same file (`basic` -> `chat` -> `30`) | yours to set |
 | Conversations hidden behind Upgrade | server-written `is_locked` field, cleared by `unlock_conversations` | never written; `unlock_all_conversations(uid)` available |
+
+## The unlock switch
+
+Set `OMI_SELFHOST_UNLIMITED=true` and the server reports unlimited allowances and treats every plan
+as paid (`utils/subscription.py`: `is_paid_plan`, `get_plan_limits`). The client then stops metering
+transcription and chat, and stops rendering upgrade prompts. Because nothing is ever exhausted,
+`is_locked` is never written, so history stays readable.
+
+This is not a bypass of anyone's billing: the plan catalog belongs to whoever operates the server,
+and this is that operator's switch. It is inert unless set, so an unmodified deployment behaves
+exactly as upstream does — pinned by `tests/unit/test_selfhost_unlimited.py`, which asserts both
+directions, including that the free plan still resolves `18000` seconds and `30` questions with the
+flag off.
 
 Speech is the expensive part, so the design leans on the phone: **iOS transcribes on-device**
 (`AppleBatchEngine`), and uploads text only to `POST /v1/conversations/from-segments`, which is
-Firebase-authed plus rate limited â€” it does **not** meter transcription minutes.
+Firebase-authed plus rate limited — it does **not** meter transcription minutes.
 
 ## Why sign-in still works from a fork
 
@@ -19,7 +32,7 @@ A sideloaded build has its own bundle id, so Google will not issue it an OAuth c
 need one: the app opens `BASE_API_URL/v1/auth/authorize`, Google returns to
 `BASE_API_URL/v1/auth/callback/google`, the backend exchanges the code server-side with your **web**
 OAuth client and mints a Firebase custom token in your project. The app only calls
-`signInWithCustomToken`. Confirmed working locally â€” `POST /v1/auth/local-dev/custom-token`
+`signInWithCustomToken`. Confirmed working locally — `POST /v1/auth/local-dev/custom-token`
 returns a valid 384-character JWT.
 
 ## What you must create
@@ -34,7 +47,7 @@ returns a valid 384-character JWT.
 ## Build and run
 
 ```bash
-# from the repository root â€” the context needs backend/ and .github/scripts/
+# from the repository root — the context needs backend/ and .github/scripts/
 docker build -f backend/selfhost/Dockerfile -t omi-selfhost .
 
 cp backend/selfhost/env.selfhost.template backend/.env
@@ -64,14 +77,31 @@ these must be set **before** that step.
 API_BASE_URL=https://<your-app>.fly.dev/
 USE_WEB_AUTH=true
 USE_AUTH_CUSTOM_TOKEN=true
+OMI_APP_PROFILE=self_host
 ```
 
-The app's `API_BASE_URL` **does** keep its trailing slash (the client concatenates `v1/...`), while the
-backend's `BASE_API_URL` must **not** have one. They are different variables with different rules â€”
-mixing them up produces a doubled slash in the Google callback URL.
+The app's `API_BASE_URL` **does** keep its trailing slash (the client concatenates `v1/...`), while
+the backend's `BASE_API_URL` must **not** have one. They are different variables with different
+rules — mixing them up produces a doubled slash in the Google callback URL.
 
 Then rebuild with `--dart-define=OMI_ON_DEVICE_OVERFLOW_FORCE=true` so on-device transcription runs
 without waiting for the PostHog flag, and sideload the new `.ipa`.
+
+## Applying the backend patch
+
+This fork carries only the `app` subtree plus `backend/selfhost`. The unlimited switch lives in
+backend code, so it ships as a patch applied to an upstream checkout at deploy time:
+
+```bash
+git clone https://github.com/BasedHardware/omi.git omi-backend
+cd omi-backend
+git apply /path/to/fork/backend/selfhost/patches/selfhost-unlimited.patch
+# then build with backend/selfhost/Dockerfile from that tree
+```
+
+The patch touches exactly two files: `backend/utils/subscription.py` (the switch) and
+`backend/tests/unit/test_selfhost_unlimited.py` (its coverage). It is inert unless
+`OMI_SELFHOST_UNLIMITED` is set.
 
 ## Migrating existing data
 
