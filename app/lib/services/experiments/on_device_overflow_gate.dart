@@ -15,9 +15,22 @@ abstract final class OnDeviceOverflowGate {
   /// Debug-build override: `--dart-define=OMI_ON_DEVICE_OVERFLOW=true`.
   static const _debugForce = bool.fromEnvironment('OMI_ON_DEVICE_OVERFLOW');
 
+  /// Build-time override honored in every mode: `--dart-define=OMI_ON_DEVICE_OVERFLOW_FORCE=true`.
+  ///
+  /// [_debugForce] cannot help a release build, and release is where this matters: the PostHog
+  /// flag defaults off and the read fails closed, so a build that has no analytics identity for
+  /// the flag — a fork signed with its own bundle id — can never turn on-device transcription on.
+  /// The feature then looks broken rather than disabled: recordings are stamped for local custody
+  /// by the capture route while the runner stays inactive, so the queue never drains.
+  static const _releaseForce = bool.fromEnvironment('OMI_ON_DEVICE_OVERFLOW_FORCE');
+
   static bool get debugOverrideActive => kDebugMode && _debugForce;
 
+  /// True when this build was compiled to run the feature regardless of the remote flag.
+  static bool get forkOverrideActive => _releaseForce;
+
   static Future<bool> read({Future<bool> Function(String key)? readFlag}) async {
+    if (forkOverrideActive) return true;
     if (debugOverrideActive) return true;
     try {
       return await (readFlag ?? AnalyticsManager().isFeatureEnabled)(enabledFlag);
