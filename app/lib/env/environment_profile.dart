@@ -41,6 +41,23 @@ enum AppEnvironmentProfile {
     authCallbackScheme: 'omifork',
     usesFirebaseAuthEmulator: false,
     allowsProductionData: true,
+  ),
+
+  /// A backend this build's operator runs themselves.
+  ///
+  /// Neither shipping profile can express this: [production] pins one exact
+  /// authority, and [localProd] is debug-only, so a self-hosted https host would
+  /// fail startup validation. Both the API authority and the Firebase project are
+  /// supplied at build time here, which is why they are empty — there is nothing
+  /// honest to default to, and [Env.validateStartupRouting] and
+  /// [Env.validateFirebaseProject] refuse to start without them.
+  selfHost(
+    name: 'self_host',
+    defaultApiBaseUrl: '',
+    firebaseProjectId: '',
+    authCallbackScheme: 'omifork',
+    usesFirebaseAuthEmulator: false,
+    allowsProductionData: true,
   );
 
   const AppEnvironmentProfile({
