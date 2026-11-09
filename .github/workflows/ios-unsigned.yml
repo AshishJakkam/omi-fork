@@ -105,7 +105,9 @@ jobs:
           bash scripts/generate_ios_custom_config.sh ios/Config/Prod/GoogleService-Info.plist ios/Flutter/
           echo '--- Custom.xcconfig ---'
           cat ios/Flutter/Custom.xcconfig
-          grep -q 'GOOGLE_REVERSE_CLIENT_ID="com.googleusercontent.apps' ios/Flutter/Custom.xcconfig || {
+          # The generator writes the value unquoted, because the shell consumes the
+          # quotes in its own `echo KEY="$(...)"`: match on the value itself.
+          grep -q '^GOOGLE_REVERSE_CLIENT_ID=com[.]googleusercontent[.]apps' ios/Flutter/Custom.xcconfig || {
             echo "Custom.xcconfig has no reversed client id; the plist read failed" >&2
             exit 1
           }
