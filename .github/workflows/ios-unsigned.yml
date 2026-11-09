@@ -17,6 +17,20 @@ name: iOS unsigned ipa
 
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Backend the build talks to. Keep the trailing slash.'
+        required: false
+        default: 'https://api.omi.me/'
+      app_profile:
+        description: 'OMI_APP_PROFILE. Blank uses the flavor default; use self_host for your own backend.'
+        required: false
+        default: ''
+      force_on_device:
+        description: 'Compile the on-device override (required for a self_host build).'
+        type: boolean
+        required: false
+        default: true
   push:
     branches: [main]
     paths:
@@ -74,7 +88,7 @@ jobs:
           # during build_runner, so it must be set before that step. Without it the
           # app uses the native Google SDK, whose client is bound to Omi's bundle
           # id, and sign-in fails for a fork.
-          set_env API_BASE_URL "https://api.omi.me/"
+          set_env API_BASE_URL "${{ inputs.api_base_url || 'https://api.omi.me/' }}"
           set_env USE_WEB_AUTH "true"
           echo '--- .env (secrets redacted) ---'
           sed -E 's/(KEY|SECRET)=.*/\1=<redacted>/' .env
@@ -155,8 +169,18 @@ jobs:
           # it from, so the gate stays shut. Then the backlog has no working exit at all: Sync
           # only ever uploads for cloud transcription (and is refused at 0 minutes), while the
           # local runner stays inactive, so recordings sit "Waiting to sync" forever.
-          flutter build ios --release --no-codesign --flavor prod \
-            --dart-define=OMI_ON_DEVICE_OVERFLOW_FORCE=true
+          DEFINES=""
+          # Empty on push events, so the override defaults on and existing builds are unchanged.
+          if [ "${{ inputs.force_on_device }}" != "false" ]; then
+            DEFINES="--dart-define=OMI_ON_DEVICE_OVERFLOW_FORCE=true"
+          fi
+          # OMI_APP_PROFILE selects the trust plane at compile time (String.fromEnvironment).
+          # Blank keeps the flavor default, so an ordinary push build is unchanged.
+          if [ -n "${{ inputs.app_profile }}" ]; then
+            DEFINES="$DEFINES --dart-define=OMI_APP_PROFILE=${{ inputs.app_profile }}"
+          fi
+          echo "defines: $DEFINES"
+          flutter build ios --release --no-codesign --flavor prod $DEFINES
           ls -la build/ios/iphoneos/
 
       - name: Package unsigned ipa
