@@ -165,6 +165,15 @@ abstract class Env {
 
   static void validateFirebaseProject({required String projectId, AppEnvironmentProfile? configuredProfile}) {
     final effectiveProfile = configuredProfile ?? profile;
+    if (effectiveProfile.firebaseProjectId.isEmpty) {
+      // self_host: the project is whatever `flutterfire configure` generated for
+      // this deployment, so there is no expected id to compare against. Requiring
+      // a non-empty one still catches an uninitialised Firebase app.
+      if (projectId.trim().isEmpty) {
+        throw StateError('Mobile profile ${effectiveProfile.name} requires a Firebase project id.');
+      }
+      return;
+    }
     if (projectId != effectiveProfile.firebaseProjectId) {
       throw StateError(
         'Mobile profile ${effectiveProfile.name} requires Firebase project ${effectiveProfile.firebaseProjectId}, '
@@ -184,6 +193,20 @@ abstract class Env {
     final effectiveProfile = configuredProfile ?? (productionFamily ? AppEnvironmentProfile.production : profile);
     final normalized = (configuredApiBaseUrl ?? apiBaseUrl ?? '').trim().replaceFirst(RegExp(r'/+$'), '');
     final expected = effectiveProfile.defaultApiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+
+    if (effectiveProfile == AppEnvironmentProfile.selfHost) {
+      // The operator chose this authority, so there is no pinned value to match.
+      // https only: this deployment carries real credentials, and the loopback
+      // allowance for local_dev must not leak into a shipped build.
+      final uri = Uri.tryParse(normalized);
+      if (uri == null || uri.host.isEmpty || uri.scheme != 'https') {
+        throw StateError(
+          'Profile self_host requires a public https API endpoint; '
+          'set API_BASE_URL to the deployment address, not a placeholder.',
+        );
+      }
+      return;
+    }
 
     if (effectiveProfile == AppEnvironmentProfile.localDev) {
       if (!_isLocalDevelopmentApi(normalized)) {
