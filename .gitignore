@@ -312,3 +312,10 @@ pnpm-workspace.yaml
 !.agent-artifacts/ui-evidence/
 .agent-artifacts/ui-evidence/*
 !.agent-artifacts/ui-evidence/lane-web-batch/
+
+# local dev logs (start-omi-dev.ps1)
+backend.log*
+firebase.log*
+
+# whisper model weights
+ggml-*.bin
