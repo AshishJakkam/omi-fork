@@ -84,6 +84,20 @@ jobs:
           cp setup/release-firebase/GoogleService-Info.prod.plist ios/Runner/GoogleService-Info.plist
           /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' ios/Runner/GoogleService-Info.plist || true
 
+      - name: Install Firebase options
+        run: |
+          set -e
+          # lib/firebase_options_prod.dart is gitignored upstream, so a fresh
+          # checkout does not have it and main.dart fails to compile with
+          # "Undefined name 'DefaultFirebaseOptions'". The real file is committed
+          # under setup/release-firebase/, so copy it into place.
+          #
+          # firebase_options_local.dart is already tracked in lib/, so only prod
+          # needs restoring here.
+          cp setup/release-firebase/firebase_options_prod.dart lib/firebase_options_prod.dart
+          ls -la lib/firebase_options_*.dart
+          grep -c "projectId" lib/firebase_options_prod.dart
+
       - name: Generate iOS custom config
         run: |
           # Writes ios/Flutter/Custom.xcconfig. prodRelease.xcconfig includes it and
