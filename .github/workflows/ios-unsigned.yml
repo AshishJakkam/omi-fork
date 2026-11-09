@@ -99,7 +99,23 @@ jobs:
         run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Pod install
-        run: cd ios && pod install --repo-update
+        run: |
+          set -e
+          cd ios
+          # TwilioVoice ships via Twilio's own CDN, which intermittently returns
+          # 504 Gateway Timeout. That is outside our control, so retry rather than
+          # fail a 20 minute build over a transient upstream hiccup.
+          for attempt in 1 2 3 4; do
+            echo "=== pod install attempt $attempt ==="
+            if pod install --repo-update; then
+              echo "pod install succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          echo "pod install failed after 4 attempts" >&2
+          exit 1
 
       - name: Use free-tier entitlements
         run: |
