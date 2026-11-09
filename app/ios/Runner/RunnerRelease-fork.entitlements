@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Minimal entitlement set for sideloading with a FREE Apple ID
+	  ("Personal Team"). Deliberately empty.
+
+	  A free provisioning profile cannot grant App Groups, Push, HealthKit,
+	  Hotspot Configuration, Wi-Fi info, Associated Domains or Sign in with
+	  Apple. Requesting them fails signing, and Sideloadly's stripping is not
+	  guaranteed to cover every combination. An empty dict asks for nothing, so
+	  any provisioning profile satisfies it.
+
+	  None of them are needed to test what this fork exists to test:
+	    background audio         : UIBackgroundModes in Info.plist, not an entitlement
+	    on-device transcription  : Apple frameworks, no entitlement
+	    microphone / Bluetooth   : Info.plist usage strings only
+
+	  What is lost in this build:
+	    battery widget and watch app  (already stripped as nested bundles)
+	    push notifications
+	    Sign in with Apple (Google web OAuth still works)
+	    Live Activity / Siri bridges that read the shared App Group
+
+	  codemagic fork yaml copies this over RunnerRelease-prod.entitlements before
+	  building, so the committed upstream file stays intact.
+
+	  No DEVELOPMENT_TEAM placeholder on purpose: CI builds with codesigning
+	  disabled, where that variable is empty, and an empty expansion inside an
+	  entitlement value can produce a malformed plist.
+	-->
+</dict>
+</plist>

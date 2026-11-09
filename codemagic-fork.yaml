@@ -109,6 +109,18 @@ workflows:
           echo "--- callback scheme registered in Info.plist ---"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' ios/Runner/Info.plist | grep -A2 auth || true
 
+      - name: Use free-tier entitlements
+        script: |
+          # The prod flavour signs against RunnerRelease-prod.entitlements, which
+          # asks for App Groups, Push, HealthKit, Hotspot, Wi-Fi info and
+          # Associated Domains. A free Apple ID cannot grant any of those and
+          # Sideloadly's stripping is not guaranteed to cover every combination,
+          # so ask for nothing instead. Background audio and on-device
+          # transcription do not need entitlements, so nothing under test is lost.
+          cp ios/Runner/RunnerRelease-fork.entitlements ios/Runner/RunnerRelease-prod.entitlements
+          echo "--- entitlements now used by the prod Release config ---"
+          cat ios/Runner/RunnerRelease-prod.entitlements
+
       - name: Build (no codesign)
         script: |
           set -e
