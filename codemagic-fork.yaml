@@ -1,0 +1,100 @@
+# Codemagic build for the AshishJakkam/omi-fork fork.
+#
+# Produces an UNSIGNED .ipa. Sideloadly re-signs it with your own Apple ID on
+# Windows, so this workflow needs no certificates, no provisioning profiles, no
+# App Store Connect key and no Apple Developer membership. That keeps the first
+# physical-device test cheap and fast.
+#
+# Identity choices that differ from upstream (see ios/Flutter/devDebug.xcconfig):
+#   bundle id            com.omi.fork        (App Store Omi stays installed)
+#   auth callback scheme  omifork            (no omi-dev:// clash)
+#   app group             group.com.omi.fork (no shared-container clash)
+#
+# Known limitation: Google Sign-In still points at Omi's Firebase project
+# (GOOGLE_REVERSE_CLIENT_ID), which is bound to the original bundle id. Replace
+# it with your own Firebase iOS app once that project exists. Until then use
+# email/password or the local backend for testing.
+
+workflows:
+  ios-unsigned:
+    name: iOS unsigned ipa (dev flavor, sideload)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.47.9
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.omi.fork
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    working_directory: app
+    scripts:
+      - name: Install Opus
+        script: |
+          # opus_flutter_ios links the system libopus.
+          brew install opus || brew upgrade opus
+
+      - name: Set up app .env
+        script: |
+          set -e
+          if [ ! -f .env ]; then cp .env.template .env; fi
+          # Empty placeholders keep Env parsing happy; no provider calls are made
+          # on the paths under test.
+          grep -q '^API_BASE_URL=' .env || echo 'API_BASE_URL=https://api.omi.me/' >> .env
+
+      - name: Install dev Firebase plist
+        script: |
+          # Committed client config for the dev environment.
+          cp setup/release-firebase/GoogleService-Info.dev.plist ios/Runner/GoogleService-Info.plist
+
+      - name: Generate iOS custom config
+        script: |
+          # Writes ios/Flutter/Custom.xcconfig (gitignored). devDebug.xcconfig
+          # includes it first and then overrides the bundle id, so our
+          # com.omi.fork identity wins regardless of what this generates.
+          bash scripts/generate_ios_custom_config.sh ios/Runner/GoogleService-Info.plist ios/Flutter/ || true
+
+      - name: Get packages
+        script: flutter pub get
+
+      - name: Run build_runner
+        script: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Pod install
+        script: |
+          cd ios && pod install --repo-update
+
+      - name: Build (no codesign)
+        script: |
+          set -e
+          flutter build ios --release --no-codesign --flavor dev
+          echo "--- built app ---"
+          ls -la build/ios/iphoneos/
+
+      - name: Package unsigned ipa
+        script: |
+          set -e
+          cd build/ios/iphoneos
+          rm -rf Payload OmiFork.ipa
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry OmiFork.ipa Payload
+          ls -lh OmiFork.ipa
+          echo "Bundle id baked into the app:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Runner.app/Info.plist
+
+    artifacts:
+      - app/build/ios/iphoneos/OmiFork.ipa
+      - app/build/ios/iphoneos/Runner.app
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      email:
+        recipients:
+          - $CM_EMAIL
+        notify:
+          success: true
+          failure: true
