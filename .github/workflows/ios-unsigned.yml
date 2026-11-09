@@ -79,24 +79,18 @@ jobs:
           echo '--- .env (secrets redacted) ---'
           sed -E 's/(KEY|SECRET)=.*/\1=<redacted>/' .env
 
-      - name: Install production Firebase plist
+      - name: Install committed Firebase client config
         run: |
-          cp setup/release-firebase/GoogleService-Info.prod.plist ios/Runner/GoogleService-Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' ios/Runner/GoogleService-Info.plist || true
-
-      - name: Install Firebase options
-        run: |
-          set -e
-          # lib/firebase_options_prod.dart is gitignored upstream, so a fresh
-          # checkout does not have it and main.dart fails to compile with
-          # "Undefined name 'DefaultFirebaseOptions'". The real file is committed
-          # under setup/release-firebase/, so copy it into place.
-          #
-          # firebase_options_local.dart is already tracked in lib/, so only prod
-          # needs restoring here.
-          cp setup/release-firebase/firebase_options_prod.dart lib/firebase_options_prod.dart
-          ls -la lib/firebase_options_*.dart
-          grep -c "projectId" lib/firebase_options_prod.dart
+          # One script installs every gitignored Firebase artefact a build needs:
+          #   lib/firebase_options_{prod,dev}.dart
+          #   android/app/src/{prod,dev}/google-services.json
+          #   ios/Config/{Prod,Dev}/GoogleService-Info.plist
+          # The last of those matters because an Xcode "Run Script" phase copies
+          # ios/Config/Prod/GoogleService-Info.plist into Runner/ for Release-prod,
+          # and fails the build if it is absent. It also validates each file names
+          # the expected project, so a wrong config fails loudly instead of
+          # producing a misconfigured app.
+          bash scripts/install_release_firebase_config.sh
 
       - name: Generate iOS custom config
         run: |
