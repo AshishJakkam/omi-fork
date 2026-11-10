@@ -86,4 +86,30 @@ void main() {
       expect(declared, contains(AppEnvironmentProfile.localDev.authCallbackScheme));
     });
   });
+
+  group('app group identity', () {
+    // The App Group is the shared container Swift extensions and the Dart side read
+    // through. Every consumer names it as a literal string, so a rename that misses one
+    // file silently splits the container in two: writes land somewhere nothing reads.
+    const group = 'group.com.openmind.app';
+
+    test('the release entitlement and every Swift consumer agree', () {
+      final entitlement = File('ios/Runner/RunnerRelease-prod.entitlements').readAsStringSync();
+      expect(entitlement, contains('<string>$group</string>'));
+
+      final swiftFiles = Directory('ios/Runner')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.swift'));
+      for (final file in swiftFiles) {
+        final source = file.readAsStringSync();
+        if (!source.contains('suiteName:') && !source.contains('forSecurityApplicationGroupIdentifier')) continue;
+        expect(
+          source,
+          isNot(contains('group.com.omi.fork')),
+          reason: '${file.path} still names the pre-rebrand App Group',
+        );
+      }
+    });
+  });
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// App Group identifier shared between the main app and the widget extension.
-let appGroupIdentifier = "group.com.omi.fork"
+let appGroupIdentifier = "group.com.openmind.app"
 
 /// Keys used to store device battery data in the shared UserDefaults.
 enum BatteryWidgetKeys {

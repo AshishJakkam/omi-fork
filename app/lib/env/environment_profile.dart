@@ -38,7 +38,7 @@ enum AppEnvironmentProfile {
     // Android prod manifest that declares the intent filter. With two apps
     // installed, reusing "omi" would let iOS hand the callback to the other app
     // and sign-in would hang.
-    authCallbackScheme: 'omifork',
+    authCallbackScheme: 'openmind',
     usesFirebaseAuthEmulator: false,
     allowsProductionData: true,
   ),
@@ -55,7 +55,7 @@ enum AppEnvironmentProfile {
     name: 'self_host',
     defaultApiBaseUrl: '',
     firebaseProjectId: '',
-    authCallbackScheme: 'omifork',
+    authCallbackScheme: 'openmind',
     usesFirebaseAuthEmulator: false,
     allowsProductionData: true,
   );

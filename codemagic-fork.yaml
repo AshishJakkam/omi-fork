@@ -6,9 +6,9 @@
 # physical-device test cheap and fast.
 #
 # Identity choices that differ from upstream (see ios/Flutter/devDebug.xcconfig):
-#   bundle id            com.omi.fork        (App Store Omi stays installed)
-#   auth callback scheme  omifork            (no omi-dev:// clash)
-#   app group             group.com.omi.fork (no shared-container clash)
+#   bundle id            com.openmind.app        (App Store Omi stays installed)
+#   auth callback scheme  openmind            (no omi-dev:// clash)
+#   app group             group.com.openmind.app (no shared-container clash)
 #
 # Known limitation: Google Sign-In still points at Omi's Firebase project
 # (GOOGLE_REVERSE_CLIENT_ID), which is bound to the original bundle id. Replace
@@ -27,7 +27,7 @@ workflows:
       xcode: 27.0
       cocoapods: 1.16.2
       vars:
-        BUNDLE_ID: com.omi.fork
+        BUNDLE_ID: com.openmind.app
         # The prod flavour uses the production profile, which pins
         # API_BASE_URL=https://api.omi.me/ and refuses anything else. That is what
         # makes the phone work untethered: no PC, no local backend, just internet.
@@ -35,7 +35,7 @@ workflows:
         # Sign-in cannot use the native Google SDK - Omi's OAuth client is bound to
         # their bundle id and would reject ours. USE_WEB_AUTH=true routes through
         # the backend's /v1/auth/authorize web flow instead, whose redirect is our
-        # own custom scheme (omifork://auth/callback). backend/routers/auth.py
+        # own custom scheme (openmind://auth/callback). backend/routers/auth.py
         # explicitly permits custom app schemes for per-bundle test builds.
         FLUTTER_FLAVOR: prod
     cache:
@@ -80,7 +80,7 @@ workflows:
         script: |
           # Writes ios/Flutter/Custom.xcconfig (gitignored). prodRelease.xcconfig
           # includes it and then overrides bundle id and callback scheme, so our
-          # com.omi.fork identity wins regardless of what this generates.
+          # com.openmind.app identity wins regardless of what this generates.
           bash scripts/generate_ios_custom_config.sh ios/Runner/GoogleService-Info.plist ios/Flutter/ || true
 
       - name: Get packages
@@ -157,14 +157,14 @@ workflows:
           echo "Display name:"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist" || echo "(none)"
 
-          rm -rf Payload OmiFork.ipa
+          rm -rf Payload openmind.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -qry OmiFork.ipa Payload
-          ls -lh OmiFork.ipa
+          zip -qry openmind.ipa Payload
+          ls -lh openmind.ipa
 
     artifacts:
-      - app/build/ios/iphoneos/OmiFork.ipa
+      - app/build/ios/iphoneos/openmind.ipa
       - /tmp/xcodebuild_logs/*.log
 
     publishing:

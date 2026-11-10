@@ -541,7 +541,7 @@ final class QuickActionsIconPatcher: NSObject {
     // so the WidgetKit extension can read it.
     let batteryWidgetChannel = FlutterMethodChannel(name: "com.omi.battery_widget", binaryMessenger: messenger)
     batteryWidgetChannel.setMethodCallHandler { (call, result) in
-      let defaults = UserDefaults(suiteName: "group.com.omi.fork")
+      let defaults = UserDefaults(suiteName: "group.com.openmind.app")
       guard let args = call.arguments as? [String: Any] else {
         result(FlutterMethodNotImplemented)
         return

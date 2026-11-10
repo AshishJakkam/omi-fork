@@ -15,7 +15,7 @@ void main() {
       expect(AppEnvironmentProfile.selfHost.defaultApiBaseUrl, isEmpty);
       expect(AppEnvironmentProfile.selfHost.firebaseProjectId, isEmpty);
       expect(AppEnvironmentProfile.selfHost.usesFirebaseAuthEmulator, isFalse);
-      expect(AppEnvironmentProfile.selfHost.authCallbackScheme, 'omifork');
+      expect(AppEnvironmentProfile.selfHost.authCallbackScheme, 'openmind');
     });
 
     test('is selectable by name at build time', () {

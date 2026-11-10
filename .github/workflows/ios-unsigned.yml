@@ -11,8 +11,8 @@ name: iOS unsigned ipa
 #
 # Identity, all agreeing with lib/env/environment_profile.dart and
 # ios/Flutter/prodRelease.xcconfig (guarded by fork_identity_consistency_test):
-#   bundle id         com.omi.fork          - App Store Omi keeps working
-#   callback scheme   omifork://auth/callback
+#   bundle id         com.openmind.app          - App Store Omi keeps working
+#   callback scheme   openmind://auth/callback
 #   app group         none (empty entitlements, free-tier safe)
 
 on:
@@ -207,16 +207,16 @@ jobs:
           echo "URL schemes:"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$APP/Info.plist" | grep -A2 -i scheme || true
 
-          rm -rf Payload OmiFork.ipa
+          rm -rf Payload OpenMind.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -qry OmiFork.ipa Payload
-          ls -lh OmiFork.ipa
+          zip -qry OpenMind.ipa Payload
+          ls -lh OpenMind.ipa
 
       - name: Upload ipa
         uses: actions/upload-artifact@v4
         with:
-          name: OmiFork-ipa
-          path: app/build/ios/iphoneos/OmiFork.ipa
+          name: OpenMind-ipa
+          path: app/build/ios/iphoneos/OpenMind.ipa
           if-no-files-found: error
           retention-days: 14

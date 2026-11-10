@@ -14,7 +14,7 @@ BUNDLE_DISPLAY_NAME=Omi
 // app. Sign-in goes through the backend's web OAuth flow (USE_WEB_AUTH=true),
 // which accepts any registered custom scheme, so no Google client of our own is
 // needed and the phone needs no local backend.
-APP_BUNDLE_IDENTIFIER=com.omi.fork
-AUTH_CALLBACK_SCHEME=omifork
-BUNDLE_NAME=Omi Fork
-BUNDLE_DISPLAY_NAME=Omi Fork
+APP_BUNDLE_IDENTIFIER=com.openmind.app
+AUTH_CALLBACK_SCHEME=openmind
+BUNDLE_NAME=OpenMind
+BUNDLE_DISPLAY_NAME=OpenMind

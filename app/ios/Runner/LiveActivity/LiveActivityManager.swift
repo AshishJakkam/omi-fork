@@ -221,7 +221,7 @@ final class LiveActivityManager {
     /// pendant is connected and not charging. Only Omi pendants report charging, so other
     /// wearables never show this card. Unknown readings are -1.
     private static func pendantBattery() -> Int? {
-        guard let defaults = UserDefaults(suiteName: "group.com.omi.fork"),
+        guard let defaults = UserDefaults(suiteName: "group.com.openmind.app"),
               defaults.string(forKey: "widget_device_type") == "omi",
               defaults.bool(forKey: "widget_is_connected"), !defaults.bool(forKey: "widget_is_charging"),
               let level = defaults.object(forKey: "widget_battery_level") as? Int, level >= 0 else { return nil }

@@ -4,9 +4,9 @@
 #include "Custom.xcconfig"
 
 ASSET_PREFIX=dev
-BUNDLE_NAME=Omi Fork
-BUNDLE_DISPLAY_NAME=Omi Fork
-APP_BUNDLE_IDENTIFIER=com.omi.fork
+BUNDLE_NAME=OpenMind
+BUNDLE_DISPLAY_NAME=OpenMind
+APP_BUNDLE_IDENTIFIER=com.openmind.app
 // Must match AppEnvironmentProfile.localDev.authCallbackScheme in Dart: the app
 // sends redirect_uri=<scheme>://auth/callback and listens for it on app_links,
 // while this value is what Info.plist registers with the OS. Divergence means the

@@ -20,7 +20,7 @@ final class SiriSession {
     private let keychainAccount = SiriStorageNamespace.current.keychainAccount
     private let configKey = SiriStorageNamespace.current.sessionConfigKey
 
-    init(defaults: UserDefaults? = UserDefaults(suiteName: "group.com.omi.fork")) {
+    init(defaults: UserDefaults? = UserDefaults(suiteName: "group.com.openmind.app")) {
         self.defaults = defaults
     }
 
