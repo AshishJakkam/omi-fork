@@ -31,6 +31,11 @@ on:
         type: boolean
         required: false
         default: true
+      include_watch:
+        description: 'Keep the watch app and other nested bundles. Requires a PAID Apple team.'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths:
@@ -190,15 +195,27 @@ jobs:
           APP=Runner.app
 
           echo "--- nested bundles before strip ---"
+          ls -la "$APP/Watch" 2>/dev/null || echo "(no Watch)"
           ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns)"
 
-          # Every nested bundle needs its own App ID and its own signature, and a
-          # free team only gets 10 new App IDs a week. Strip them so the ipa is a
-          # single flat app that Sideloadly signs in one step.
-          rm -rf "$APP/PlugIns" "$APP/Watch" "$APP/com.apple.WatchPlaceholder"
-          find "$APP" -maxdepth 2 -name '*.appex' -type d -exec rm -rf {} + 2>/dev/null || true
-          echo "--- after strip ---"
-          ls -la "$APP/PlugIns" 2>/dev/null || echo "(none - good)"
+          # Every nested bundle needs its own App ID and its own signature, and a free team
+          # only gets 10 new App IDs a week. Strip them so the ipa is a single flat app that
+          # Sideloadly signs in one step.
+          #
+          # include_watch keeps them: a watchOS companion needs com.openmind.app.watchkitapp
+          # plus its extension signed separately, which a Personal Team usually cannot do at
+          # all. Use it only with a paid Apple Developer account, where watch installs work.
+          if [ "${{ inputs.include_watch }}" = "true" ]; then
+            echo "--- keeping nested bundles (include_watch=true) ---"
+            ls -la "$APP/Watch"
+            find "$APP" -maxdepth 3 -name '*.appex' -type d | sed 's/^/    appex: /'
+          else
+            rm -rf "$APP/PlugIns" "$APP/Watch" "$APP/com.apple.WatchPlaceholder"
+            find "$APP" -maxdepth 2 -name '*.appex' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "--- after strip ---"
+            ls -la "$APP/Watch" 2>/dev/null || echo "(no Watch - free-tier build)"
+            ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns - free-tier build)"
+          fi
 
           echo "Bundle id:"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
