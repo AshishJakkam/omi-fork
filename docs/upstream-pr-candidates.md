@@ -60,7 +60,14 @@ different backend, or no Apple Developer account.
 Ranked by (a) how obviously correct the fix is, (b) how little it depends on this fork, (c) how
 likely a maintainer accepts it.
 
-### PR 1 — Honour the selected speech model (bug fix) — best candidate
+### PR 1 — Honour the selected speech model (bug fix) — ✅ **SENT as [#25121](https://github.com/BasedHardware/omi/pull/25121)**
+
+**Status.** Opened against `BasedHardware/omi` `main` at `245f8174b1`. Two commits, three files,
++135/−25. Verified there: `flutter analyze` clean, 8/8 tests pass, `dart format` unchanged.
+
+Note: a PR to upstream is only possible from a real GitHub **fork**. `AshishJakkam/omi-fork` is a
+standalone repo (not a fork), so nothing could be sent from it. `AshishJakkam/omi` was forked from
+upstream for this; the working clone lives at `C:\omipr` (sparse: `app` + `backend/utils`).
 
 **Problem.** `FreemiumTranscriptionService._findDownloadedModelPath()` walks a hardcoded
 `['tiny','base','small','medium','large-v1','large-v2']` list and returns the first file present.
@@ -69,24 +76,24 @@ in `models/`, the choice is ignored — silently. A user who downloads `base` fo
 and no explanation.
 
 **Fix.** A pure `chooseModelPath(binPaths, {preferredModel, preferredPath})` that consults the saved
-`CustomSttConfig` (path, then name) before falling back to the size heuristic. Eight unit tests, no
-platform or fork dependencies.
+`CustomSttConfig` (path, then name) before falling back to the size heuristic.
 
 **Why a maintainer takes it:** it is a one-function bug fix at a call site that already exists, it
 has a failing case anyone can reproduce (two models on disk), and it makes an existing UI control
 work. Files: `app/lib/services/freemium_transcription_service.dart`,
 `app/test/unit/on_device_model_selection_test.dart`.
 
-### PR 2 — Stop passing `multi` to Apple's transcriber (bug fix)
+### PR 2 — Stop passing `multi` to Apple's transcriber — ❌ **WITHDRAWN, upstream already handles it**
 
-**Problem.** `createOnDeviceSttConfig` derives the language and `on_device_runner` passed it
-straight to `AppleBatchEngine.transcribe`, but the locale for Apple's recognizer must be concrete.
-`multi` is the on-device *default* language, so this is the common path, not an edge case.
+I believed `AppleBatchEngine.transcribe` receives `multi`, which is not a locale. Checking current
+`main` before sending: `AppleBatchEngine` does pass the string straight through, **but** nothing lets
+`multi` reach it — `SttLanguage.derived()` maps `multi` → `en` on iOS
+(`app/lib/pages/settings/transcription/stt_language.dart:40`), `SttLanguage.supported()` filters
+`multi` out of the picker on iOS, and `OnDeviceAppleProvider.transcribe` maps it again at
+`on_device_apple_provider.dart:114`. The fork's version of this fix was justified against an older
+base. Sending it would have been a speculative patch with no reproducible failure, so it was
+dropped rather than filed.
 
-**Fix.** `_appleLanguage()` resolves `multi`/empty to a concrete locale before the native call.
-
-**Why a maintainer takes it:** small, self-contained, and it is the default configuration.
-File: `app/lib/services/on_device/on_device_runner.dart`.
 
 ### PR 3 — Use Whisper on iOS when a model is installed (feature)
 
@@ -111,7 +118,7 @@ heading, with copy that says Apple remains the default. Adds two l10n keys (`ios
 `iosWhisperHelp`) and regenerates locales (English fallback for the rest).
 File: `app/lib/pages/settings/transcription_settings_page.dart`.
 
-### PR 5 — Detect any installed model in settings (bug fix)
+### PR 5 — Detect any installed model in settings (bug fix) — ✅ **included in [#25121](https://github.com/BasedHardware/omi/pull/25121)**
 
 **Problem.** `_checkLocalModel()` only looks for `models/ggml-<currentModel>.bin`. A model present
 under any other name is invisible: the row says "not downloaded" while transcription uses that very
@@ -120,8 +127,9 @@ file.
 **Fix.** List the directory and select through the same `chooseModelPath`, then record the model
 name it found so the picker agrees with reality.
 
-**Why a maintainer takes it:** the UI currently contradicts the app's behaviour. Fold into PR 1 if
-preferred — they are the same class of bug.
+**Why it went out with PR 1:** without it, PR 1 makes the app run the right model while this page
+still reports the wrong one. They are the same class of bug and reading them together is easier.
+
 
 ### PR 6 — Retry `pod install` on a CDN failure (CI)
 
