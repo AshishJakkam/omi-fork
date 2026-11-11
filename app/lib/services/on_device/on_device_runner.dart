@@ -56,6 +56,18 @@ Stream<List<Uint8List>> readOnDeviceChunks(File file, int framesPerSecond) async
 
 class PreparedContinuationDisabled implements Exception {}
 
+/// Apple's speech engine takes a concrete locale, never the app's "multi" preference.
+///
+/// `SpeechAnalyzerTranscription.locale(for:)` returns nil for an auto-detect sentinel, the
+/// engine is then reported unavailable, and the recording stalls. Whisper treats "multi" as
+/// auto-detect, so both settings stay valid — this only translates at the Apple boundary.
+String _appleLanguage(String language) {
+  final trimmed = language.trim();
+  if (trimmed.isEmpty || trimmed == 'multi') return 'en';
+  return trimmed;
+}
+
+
 /// Owns only finalized phone-only WALs. The WAL generation fences every asynchronous publish.
 class OnDeviceRunner with WidgetsBindingObserver {
   OnDeviceRunner(
@@ -217,12 +229,22 @@ class OnDeviceRunner with WidgetsBindingObserver {
     final language = prepared?.language ?? SharedPreferencesUtil().userPrimaryLanguage;
     final apple = AppleBatchEngine();
     OnDeviceWhisperProvider? whisper;
-    if (prepared == null && !Platform.isIOS && transcribeChunk == null) {
+    if (prepared == null && transcribeChunk == null) {
+      // iOS gets whisper too. whisper_flutter_new ships an iOS pod and the model-directory
+      // lookup in FreemiumTranscriptionService is not platform-gated, so a model placed in
+      // <app support>/models/ggml-*.bin is usable here. It matters because Apple's on-device
+      // engine is weak for languages such as Telugu and Hindi, which is what the multilingual
+      // whisper models are for. If the native plugin refuses the file, the loop below falls
+      // back to Apple per chunk on iOS, so a bad or wrong-sized model can never wedge the queue.
       final service = FreemiumTranscriptionService();
       await service.checkReadiness();
       final model = service.cachedModelPath;
-      if (model == null) throw StateError('Whisper model unavailable');
-      whisper = OnDeviceWhisperProvider(modelPath: model, language: language, onDeviceOverflowEnabled: true);
+      if (model == null) {
+        // Android has no other engine; failing loudly keeps the bytes for a later retry.
+        if (!Platform.isIOS) throw StateError('Whisper model unavailable');
+      } else {
+        whisper = OnDeviceWhisperProvider(modelPath: model, language: language, onDeviceOverflowEnabled: true);
+      }
     }
     final transcoder = wal.codec.isOpusSupported()
         ? OpusToWavTranscoder(sampleRate: wal.sampleRate, channels: wal.channel)
@@ -237,10 +259,24 @@ class OnDeviceRunner with WidgetsBindingObserver {
           final wav = transcoder.transcodeFrames(frames);
           final duration = frames.length / wal.codec.getFramesPerSecond();
           List<OnDeviceWord> words;
-          if (Platform.isIOS || transcribeChunk != null) {
+          final activeWhisper = whisper;
+          if (activeWhisper != null && transcribeChunk == null) {
+            try {
+              final result = await activeWhisper.transcribe(wav);
+              if (result == null) throw StateError('Whisper returned no transcript');
+              words = result.segments.map((s) => OnDeviceWord(s.text, s.start, s.end)).toList();
+            } catch (error) {
+              // Apple remains the iOS safety net: a model the native plugin cannot load must
+              // degrade to a transcript, not to a permanently stuck recording.
+              if (!Platform.isIOS) rethrow;
+              final result = await apple.transcribe(wav, language: _appleLanguage(language));
+              engine = result.engine;
+              words = result.words.isNotEmpty ? result.words : [OnDeviceWord(result.text, 0, duration)];
+            }
+          } else if (Platform.isIOS || transcribeChunk != null) {
             final result = transcribeChunk != null
                 ? await transcribeChunk!(wav, language)
-                : await apple.transcribe(wav, language: language.isEmpty ? 'en' : language);
+                : await apple.transcribe(wav, language: _appleLanguage(language));
             engine = result.engine;
             words = result.words.isNotEmpty ? result.words : [OnDeviceWord(result.text, 0, duration)];
           } else {
