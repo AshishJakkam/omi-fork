@@ -1,5 +1,6 @@
 import 'package:permission_handler/permission_handler.dart';
 import 'package:omi/services/sockets/on_device_apple_provider.dart';
+import 'package:omi/services/freemium_transcription_service.dart';
 import 'package:omi/services/sockets/local_stt_failure.dart';
 import 'package:omi/ui/components/local_stt_recovery_notice.dart';
 import 'dart:async';
@@ -274,13 +275,26 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
   Future<void> _checkLocalModel() async {
     try {
       final appDir = await getApplicationSupportDirectory();
-      final modelName = _currentModel.isEmpty ? 'tiny' : _currentModel;
-      final filePath = '${appDir.path}/models/ggml-$modelName.bin';
-      if (await File(filePath).exists()) {
+      final modelDir = Directory('${appDir.path}/models');
+      final binFiles = await modelDir.exists()
+          ? (await modelDir.list().toList()).whereType<File>().where((f) => f.path.endsWith('.bin')).toList()
+          : <File>[];
+
+      // Detect whatever is installed rather than only the model this provider names. A model that
+      // arrived another way still has to show up here, otherwise the row claims nothing is
+      // installed while on-device transcription is using it.
+      final filePath = FreemiumTranscriptionService.chooseModelPath(
+        binFiles.map((file) => file.path).toList(),
+        preferredModel: _currentModel.isEmpty ? null : _currentModel,
+        preferredPath: _urlController.text.isEmpty ? null : _urlController.text,
+      );
+
+      if (filePath != null) {
+        final installed = RegExp(r'ggml-(.+)\.bin$').firstMatch(filePath.replaceAll('\\', '/'))?.group(1);
         if (mounted) {
           setState(() {
             _urlController.text = filePath;
-            _updateCurrentProviderConfig(url: filePath);
+            _updateCurrentProviderConfig(url: filePath, model: installed);
           });
 
           await _saveCurrentProviderConfig();
@@ -294,7 +308,7 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
           }
         }
       } else {
-        // Clear if not found matching current model
+        // Clear if no model is on disk
         if (mounted && _urlController.text.isNotEmpty) {
           setState(() {
             _urlController.text = '';
@@ -1240,6 +1254,8 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
             },
           ),
           const SizedBox(height: OmiSpacing.lg),
+          _buildWhisperModelSection(title: context.l10n.iosWhisperTitle, help: context.l10n.iosWhisperHelp),
+          const SizedBox(height: OmiSpacing.lg),
           _buildLanguageSelector(),
         ],
       );
@@ -1248,6 +1264,27 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildWhisperModelSection(),
+        const SizedBox(height: OmiSpacing.lg),
+        _buildLanguageSelector(),
+      ],
+    );
+  }
+
+  /// The model on disk and the picker for it. iOS does not need it - Apple's engine works with no
+  /// download - so there it is offered as an upgrade rather than as the only way to transcribe.
+  Widget _buildWhisperModelSection({String? title, String? help}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title != null) ...[
+          Text(title, style: OmiType.subhead.copyWith(fontWeight: FontWeight.w500)),
+          if (help != null) ...[
+            const SizedBox(height: OmiSpacing.xs),
+            TranscriptionHelpText(help),
+          ],
+          const SizedBox(height: OmiSpacing.sm),
+        ],
         WhisperModelStatus(
           modelFile: 'ggml-${_currentModel.isEmpty ? 'tiny' : _currentModel}.bin',
           hasModel: _isModelFilePresent,
@@ -1259,8 +1296,6 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
         ),
         const SizedBox(height: OmiSpacing.lg),
         _buildModelSelector(),
-        const SizedBox(height: OmiSpacing.lg),
-        _buildLanguageSelector(),
       ],
     );
   }

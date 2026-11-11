@@ -14007,6 +14007,13 @@ class AppLocalizationsSl extends AppLocalizations {
   String get onDeviceSpeechModel => 'Govorni model';
 
   @override
+  String get iosWhisperTitle => 'Speech model (optional)';
+
+  @override
+  String get iosWhisperHelp =>
+      'Apple\'s speech recognition is used until you install a Whisper model here. Whisper handles languages such as Telugu and Hindi better, and runs on this iPhone.';
+
+  @override
   String onDeviceMegabytes(String size) {
     return '$size MB';
   }

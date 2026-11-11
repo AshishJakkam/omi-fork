@@ -24867,6 +24867,18 @@ abstract class AppLocalizations {
   /// **'Speech model'**
   String get onDeviceSpeechModel;
 
+  /// Heading for the Whisper model section on iOS, where Apple's engine is already the default
+  ///
+  /// In en, this message translates to:
+  /// **'Speech model (optional)'**
+  String get iosWhisperTitle;
+
+  /// Explains that a Whisper model overrides Apple's on-device speech on iOS
+  ///
+  /// In en, this message translates to:
+  /// **'Apple\'s speech recognition is used until you install a Whisper model here. Whisper handles languages such as Telugu and Hindi better, and runs on this iPhone.'**
+  String get iosWhisperHelp;
+
   /// A file size in megabytes
   ///
   /// In en, this message translates to:

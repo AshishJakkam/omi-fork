@@ -16947,6 +16947,14 @@
     "@onDeviceSpeechModel": {
         "description": "Label for the downloadable on-device speech recognition model"
     },
+    "iosWhisperTitle": "Speech model (optional)",
+    "@iosWhisperTitle": {
+        "description": "Heading for the Whisper model section on iOS, where Apple's engine is already the default"
+    },
+    "iosWhisperHelp": "Apple's speech recognition is used until you install a Whisper model here. Whisper handles languages such as Telugu and Hindi better, and runs on this iPhone.",
+    "@iosWhisperHelp": {
+        "description": "Explains that a Whisper model overrides Apple's on-device speech on iOS"
+    },
     "onDeviceMegabytes": "{size} MB",
     "@onDeviceMegabytes": {
         "description": "A file size in megabytes",
