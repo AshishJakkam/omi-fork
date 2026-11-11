@@ -24,15 +24,20 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$TargetBundleId = 'com.openmind.app',
+  [string]$TargetBundleId = '',
   [string]$Model = 'base',
-  [string]$ModelFile = 'C:\omiwork\ggml-base.bin',
+  [string]$ModelFile = 'C:\Users\ashis\omi-captures\models\ggml-base.bin',
   [string]$BackupDir = 'C:\Users\ashis\omi-captures\recoverable-audio'
 )
 
 $ErrorActionPreference = 'Stop'
+
 $ios = 'C:\go-ios\ios.exe'
-if (-not (Test-Path $ios)) { throw "go-ios not found at $ios" }
+if (-not (Test-Path $ios)) {
+  $ios = (Get-ChildItem 'C:\Users\ashis\Tools' -Recurse -Filter 'ios.exe' -ErrorAction SilentlyContinue |
+          Select-Object -First 1).FullName
+}
+if (-not $ios -or -not (Test-Path $ios)) { throw 'go-ios not found. Install it or pass -IosPath.' }
 
 function Invoke-Ios {
   param([string]$Arguments, [int]$TimeoutSeconds = 120, [switch]$Capture)
@@ -54,8 +59,17 @@ if ($devices -notmatch '\d{8}-[0-9A-Fa-f]{16}') { throw 'no device. Connect it, 
 Write-Host '  device connected'
 
 $apps = Invoke-Ios -Arguments 'apps' -Capture
+if (-not $TargetBundleId) {
+  # Sideloadly appends a suffix when the plain id is already claimed by another signing identity
+  # (the previous fork installed as com.omi.fork.WB98TW9DCS), so match the prefix, not the exact id.
+  $match = [regex]::Matches($apps, '(?m)^(com\.openmind\.app[A-Za-z0-9\.\-]*)\s') | Select-Object -First 1
+  if (-not $match) {
+    throw 'com.openmind.app is not installed. Sideload OpenMind-watch.ipa first - the container must exist.'
+  }
+  $TargetBundleId = $match.Groups[1].Value
+}
 if ($apps -notmatch [regex]::Escape($TargetBundleId)) {
-  throw "$TargetBundleId is not installed. Sideload OpenMind.ipa first - the container must exist."
+  throw "$TargetBundleId is not installed. Sideload OpenMind-watch.ipa first - the container must exist."
 }
 Write-Host "  $TargetBundleId installed"
 
