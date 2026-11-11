@@ -181,7 +181,14 @@ jobs:
           fi
           # OMI_APP_PROFILE selects the trust plane at compile time (String.fromEnvironment).
           # Blank keeps the flavor default, so an ordinary push build is unchanged.
+          # Validate here: AppEnvironmentProfile parses this at startup and renders a startup failure
+          # screen on an unknown value, so a typo like "prod" produces an app that installs and cannot
+          # open. Failing the build is far cheaper than finding that out on a phone.
           if [ -n "${{ inputs.app_profile }}" ]; then
+            case "${{ inputs.app_profile }}" in
+              local_dev|mobile_beta|production|self_host) ;;
+              *) echo "::error::app_profile must be one of local_dev, mobile_beta, production, self_host (got '${{ inputs.app_profile }}')"; exit 1 ;;
+            esac
             DEFINES="$DEFINES --dart-define=OMI_APP_PROFILE=${{ inputs.app_profile }}"
           fi
           echo "defines: $DEFINES"
