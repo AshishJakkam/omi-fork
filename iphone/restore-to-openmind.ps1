@@ -13,12 +13,8 @@
     2. wals.json + the audio it references -> Documents/
 
   Why the model name matters: FreemiumTranscriptionService prefers the SMALLEST ggml-*.bin it
-  finds (tiny, base, small, medium, large-v1, large-v2). A fresh container has no model, so the
-  pushed one is selected. If you ever push a second, smaller model, that one wins silently - the
-  script prints the directory before and after so you can see what the app will actually use.
-
-  go-ios has no `file rm`, so this cannot delete a stale model. If one is already present in the
-  target container, reinstall the app to clear the container instead.
+  finds (tiny, base, small, medium, large-v1, large-v2), so any other model already present is
+  removed first via `fsync rm` (the `file` subcommand has no rm; `fsync` does).
 
   Requires: phone connected and unlocked, and OpenMind already installed once, because the
   container must exist before anything can be written into it.
@@ -74,12 +70,23 @@ Write-Host "  recordings: $($audio.Count) audio files + wals.json"
 
 Write-Host "`n== 1. model ==" -ForegroundColor Cyan
 $modelsDir = 'Library/Application Support/models'
-$before = Invoke-Ios -Arguments "file ls --app=$TargetBundleId `"--path=$modelsDir`"" -Capture
+$before = Invoke-Ios -Arguments "fsync --app=$TargetBundleId tree `"--path=$modelsDir`"" -Capture
 Write-Host "  before: $($before.Trim())"
+
+# FreemiumTranscriptionService prefers the SMALLEST ggml-*.bin it finds, so every other model
+# must go or the newly pushed one is silently ignored. `file` has no rm, but `fsync` does.
+foreach ($stale in @('ggml-tiny.bin', 'ggml-base.bin', 'ggml-small.bin', 'ggml-medium.bin',
+                     'ggml-large-v1.bin', 'ggml-large-v2.bin')) {
+  if ($stale -eq "ggml-$Model.bin") { continue }
+  if ($before -notmatch [regex]::Escape($stale)) { continue }
+  Invoke-Ios -Arguments "fsync --app=$TargetBundleId rm `"--path=$modelsDir/$stale`"" -TimeoutSeconds 60 | Out-Null
+  Write-Host "  removed stale $stale"
+}
+
 Invoke-Ios -Arguments "file push --app=$TargetBundleId `"--remote=$modelsDir/ggml-$Model.bin`" --local=$ModelFile" -TimeoutSeconds 600 | Out-Null
-$after = Invoke-Ios -Arguments "file ls --app=$TargetBundleId `"--path=$modelsDir`"" -Capture
+$after = Invoke-Ios -Arguments "fsync --app=$TargetBundleId tree `"--path=$modelsDir`"" -Capture
 Write-Host "  after : $($after.Trim())"
-Write-Host "  (the app selects the smallest ggml-*.bin present)" -ForegroundColor Yellow
+Write-Host "  (should list only ggml-$Model.bin)" -ForegroundColor Yellow
 
 Write-Host "`n== 2. recordings ==" -ForegroundColor Cyan
 Invoke-Ios -Arguments "file push --app=$TargetBundleId --remote=Documents/wals.json --local=$walsPath" -TimeoutSeconds 180 | Out-Null
