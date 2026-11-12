@@ -18,3 +18,10 @@ APP_BUNDLE_IDENTIFIER=com.openmind.app
 AUTH_CALLBACK_SCHEME=openmind
 BUNDLE_NAME=OpenMind
 BUNDLE_DISPLAY_NAME=OpenMind
+
+// whisper_flutter_new exposes one C entry point, `request`, which Dart reaches through
+// DynamicLibrary.lookup rather than a normal reference. Release builds strip unreferenced symbols,
+// so the function was removed from the binary and every transcription failed with
+// "Failed to lookup symbol 'request': dlsym(RTLD_DEFAULT, request): symbol not found".
+// -u keeps it, and pulls in the whisper/ggml objects it calls.
+OTHER_LDFLAGS=$(inherited) -Wl,-u,_request

@@ -18,3 +18,7 @@ APP_BUNDLE_IDENTIFIER=com.openmind.app
 AUTH_CALLBACK_SCHEME=openmind
 BUNDLE_NAME=OpenMind
 BUNDLE_DISPLAY_NAME=OpenMind
+
+// See prodRelease.xcconfig: keeps whisper_flutter_new's `request` entry point, which only Dart's
+// dynamic lookup references, from being stripped out of the profile build.
+OTHER_LDFLAGS=$(inherited) -Wl,-u,_request
