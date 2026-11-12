@@ -24879,6 +24879,12 @@ abstract class AppLocalizations {
   /// **'Apple\'s speech recognition is used until you install a Whisper model here. Whisper handles languages such as Telugu and Hindi better, and runs on this iPhone.'**
   String get iosWhisperHelp;
 
+  /// Shown instead of the Apple engine label when an installed Whisper model will be used
+  ///
+  /// In en, this message translates to:
+  /// **'Using Whisper ({model}) on this iPhone'**
+  String usingWhisperOnThisIphone(String model);
+
   /// A file size in megabytes
   ///
   /// In en, this message translates to:

@@ -1,6 +1,6 @@
 import 'package:permission_handler/permission_handler.dart';
 import 'package:omi/services/sockets/on_device_apple_provider.dart';
-import 'package:omi/services/freemium_transcription_service.dart';
+
 import 'package:omi/services/sockets/local_stt_failure.dart';
 import 'package:omi/ui/components/local_stt_recovery_notice.dart';
 import 'dart:async';
@@ -275,45 +275,34 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
   Future<void> _checkLocalModel() async {
     try {
       final appDir = await getApplicationSupportDirectory();
-      final modelDir = Directory('${appDir.path}/models');
-      final binFiles = await modelDir.exists()
-          ? (await modelDir.list().toList()).whereType<File>().where((f) => f.path.endsWith('.bin')).toList()
-          : <File>[];
+      final modelName = _currentModel.isEmpty ? 'tiny' : _currentModel;
+      final filePath = '${appDir.path}/models/ggml-$modelName.bin';
+      final exists = await File(filePath).exists();
 
-      // Detect whatever is installed rather than only the model this provider names. A model that
-      // arrived another way still has to show up here, otherwise the row claims nothing is
-      // installed while on-device transcription is using it.
-      final filePath = FreemiumTranscriptionService.chooseModelPath(
-        binFiles.map((file) => file.path).toList(),
-        preferredModel: _currentModel.isEmpty ? null : _currentModel,
-        preferredPath: _urlController.text.isEmpty ? null : _urlController.text,
-      );
+      // This only ever reflects the SELECTED model. Scanning for any installed model here used to
+      // rewrite the selection: choosing `base` while only `tiny` was on disk saved `tiny` straight
+      // back over it, which made the picker look unable to hold a choice.
+      if (!mounted) return;
 
-      if (filePath != null) {
-        final installed = RegExp(r'ggml-(.+)\.bin$').firstMatch(filePath.replaceAll('\\', '/'))?.group(1);
-        if (mounted) {
-          setState(() {
-            _urlController.text = filePath;
-            _updateCurrentProviderConfig(url: filePath, model: installed);
-          });
+      if (exists) {
+        setState(() {
+          _urlController.text = filePath;
+          _updateCurrentProviderConfig(url: filePath);
+        });
 
-          await _saveCurrentProviderConfig();
-          if (_useCustomStt && _selectedProvider == SttProvider.onDeviceWhisper) {
-            final config = _buildCurrentConfig();
-            await SharedPreferencesUtil().saveCustomSttConfig(config);
+        await _saveCurrentProviderConfig();
+        if (_useCustomStt && _selectedProvider == SttProvider.onDeviceWhisper) {
+          final config = _buildCurrentConfig();
+          await SharedPreferencesUtil().saveCustomSttConfig(config);
 
-            if (mounted) {
-              await Provider.of<CaptureProvider>(context, listen: false).onTranscriptionSettingsChanged();
-            }
+          if (mounted) {
+            await Provider.of<CaptureProvider>(context, listen: false).onTranscriptionSettingsChanged();
           }
         }
-      } else {
-        // Clear if no model is on disk
-        if (mounted && _urlController.text.isNotEmpty) {
-          setState(() {
-            _urlController.text = '';
-          });
-        }
+      } else if (_urlController.text.isNotEmpty) {
+        setState(() {
+          _urlController.text = '';
+        });
       }
     } catch (e, stack) {
       Logger.debug('Error checking local model: $e\n$stack');
@@ -1229,10 +1218,15 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
             ),
             child: Row(
               children: [
-                Icon(Icons.apple, color: OmiColors.textPrimary, size: 24),
+                Icon(_isModelFilePresent ? Icons.memory : Icons.apple,
+                    color: OmiColors.textPrimary, size: 24),
                 const SizedBox(width: OmiSpacing.sm),
                 Expanded(
-                  child: Text(context.l10n.usingNativeIosSpeech,
+                  child: Text(
+                      _isModelFilePresent
+                          ? context.l10n.usingWhisperOnThisIphone(
+                              'ggml-${_currentModel.isEmpty ? 'tiny' : _currentModel}.bin')
+                          : context.l10n.usingNativeIosSpeech,
                       style: OmiType.subhead.copyWith(fontWeight: FontWeight.w500)),
                 ),
               ],

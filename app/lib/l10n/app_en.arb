@@ -16955,6 +16955,15 @@
     "@iosWhisperHelp": {
         "description": "Explains that a Whisper model overrides Apple's on-device speech on iOS"
     },
+    "usingWhisperOnThisIphone": "Using Whisper ({model}) on this iPhone",
+    "@usingWhisperOnThisIphone": {
+        "description": "Shown instead of the Apple engine label when an installed Whisper model will be used",
+        "placeholders": {
+            "model": {
+                "type": "String"
+            }
+        }
+    },
     "onDeviceMegabytes": "{size} MB",
     "@onDeviceMegabytes": {
         "description": "A file size in megabytes",

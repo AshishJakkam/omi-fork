@@ -14019,6 +14019,11 @@ class AppLocalizationsBe extends AppLocalizations {
       'Apple\'s speech recognition is used until you install a Whisper model here. Whisper handles languages such as Telugu and Hindi better, and runs on this iPhone.';
 
   @override
+  String usingWhisperOnThisIphone(String model) {
+    return 'Using Whisper ($model) on this iPhone';
+  }
+
+  @override
   String onDeviceMegabytes(String size) {
     return '$size МБ';
   }
