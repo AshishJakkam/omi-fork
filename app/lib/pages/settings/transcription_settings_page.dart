@@ -224,8 +224,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     _urlController.text = config?.url ?? '';
     _sendRawAudioToOmi = config?.sendRawAudioToOmi ?? true;
 
-    // Auto-detect model for on-device whisper if not set
-    if (_selectedProvider == SttProvider.onDeviceWhisper && _urlController.text.isEmpty) {
+    // Re-resolve the model path for on-device whisper. The stored value is an absolute path, and
+    // an app reinstall gives the data container a new UUID, so a path saved before reinstalling
+    // points at a directory that no longer exists - the model is on disk but nothing finds it.
+    if (_selectedProvider == SttProvider.onDeviceWhisper) {
       _checkLocalModel();
     }
 
@@ -282,9 +284,16 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
       // This only ever reflects the SELECTED model. Scanning for any installed model here used to
       // rewrite the selection: choosing `base` while only `tiny` was on disk saved `tiny` straight
       // back over it, which made the picker look unable to hold a choice.
+      //
+      // A stored path that no longer resolves is replaced rather than trusted: it survives an
+      // app reinstall, but the data container's UUID doesn't, so the old absolute path is dead
+      // even though the file is present.
+      final stored = _urlController.text;
+      final storedResolves = stored.isEmpty || await File(stored).exists();
+
       if (!mounted) return;
 
-      if (exists) {
+      if (exists && !storedResolves) {
         setState(() {
           _urlController.text = filePath;
           _updateCurrentProviderConfig(url: filePath);
@@ -299,9 +308,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
             await Provider.of<CaptureProvider>(context, listen: false).onTranscriptionSettingsChanged();
           }
         }
-      } else if (_urlController.text.isNotEmpty) {
+      } else if (!exists && stored.isNotEmpty) {
         setState(() {
           _urlController.text = '';
+          _updateCurrentProviderConfig(url: '');
         });
       }
     } catch (e, stack) {
