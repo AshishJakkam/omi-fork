@@ -106,7 +106,12 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
   String _languageFor(SttProvider provider) {
     final derived = SttLanguage.derived(provider, _primaryLanguage);
     if (!_isLanguageOverridden(provider)) return derived;
-    return _configsPerProvider[provider]?.language ?? derived;
+    final stored = _configsPerProvider[provider]?.language;
+    // A stored language the provider cannot speak would otherwise be sent as-is, so a bad value
+    // (for example a model name saved into the language slot) silently breaks every request.
+    final supported = SttLanguage.supported(provider);
+    if (stored == null || stored.isEmpty || !supported.contains(stored)) return derived;
+    return stored;
   }
 
   String get _currentModel => _currentProviderConfig?.model ?? _currentConfig.defaultModel;
