@@ -13,6 +13,7 @@ import 'package:omi/backend/schema/structured.dart';
 import 'package:omi/backend/schema/transcript_segment.dart';
 import 'package:omi/services/capture/local_stt_custody.dart';
 import 'package:omi/services/on_device/on_device_overflow_intake.dart';
+import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'on_device_segment_upload.dart';
 import 'on_device_segment_snapshot.dart';
 import 'package:omi/services/experiments/client_refactor_flags.dart';
@@ -171,6 +172,9 @@ class OnDeviceRunner with WidgetsBindingObserver {
           .toList();
       pendingSeconds = pending.fold(0, (sum, w) => sum + w.seconds);
       controller.setPendingSeconds(pendingSeconds);
+      unawaited(OnDeviceFileLog.write(
+          'run pending=${pending.length} seconds=$pendingSeconds enabled=${controller.settings.enabled} '
+          'model=${controller.model.status.phase.name} active=${controller.isActive}'));
       if (!controller.settings.enabled) return;
       if (pending.any((w) => w.onDevicePreparedUpload != null) && !await ClientRefactorFlags.chunkUploads()) {
         for (final wal in pending.where((w) => w.onDevicePreparedUpload != null)) {
@@ -183,6 +187,7 @@ class OnDeviceRunner with WidgetsBindingObserver {
       if (!hasModel && !(resumePrepared && pending.any((w) => w.onDevicePreparedUpload != null))) return;
       final decision =
           await controller.evaluate(pendingAudio: Duration(seconds: pendingSeconds), transcribeNow: transcribeNow);
+      unawaited(OnDeviceFileLog.write('decision run=${decision.shouldRun} reason=${decision.reason.name}'));
       if (!decision.shouldRun) return;
       controller.markRunFailure(false);
       controller.markRun(running: true);
@@ -192,14 +197,16 @@ class OnDeviceRunner with WidgetsBindingObserver {
         await _process(wal, generation);
       }
       lastError = null;
-    } catch (error) {
+    } catch (error, stack) {
       // Keep original bytes and retry from them. No transcript content in error logs.
       if (_cancelled || (error is PlatformException && error.code == 'CANCELLED')) {
         lastError = null;
         controller.markRunFailure(false);
+        unawaited(OnDeviceFileLog.write('run cancelled'));
       } else {
         lastError = error is PreparedContinuationDisabled ? 'continuation_disabled' : error.runtimeType.toString();
         controller.markRunFailure(true);
+        unawaited(OnDeviceFileLog.error('run', error, stack));
       }
     } finally {
       if (controller.isTranscribing) controller.markRun(running: false);
