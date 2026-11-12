@@ -80,6 +80,25 @@ class FreemiumTranscriptionService extends ChangeNotifier {
 
   Future<FreemiumReadiness> checkReadiness({String? language}) async {
     if (iosOverride ?? Platform.isIOS) {
+      // A whisper model on disk makes on-device transcription ready on its own: the runner prefers
+      // whisper whenever a model exists and only falls back to Apple per chunk. Gating readiness on
+      // Apple alone reported "unavailable" while a perfectly good model sat there unused, which also
+      // disabled the queue path that would have drained the pending recordings.
+      try {
+        final modelPath = await _findDownloadedModelPath();
+        if (modelPath != null) {
+          _cachedModelPath = modelPath;
+          final appleOk = await (appleReadinessReader ?? OnDeviceAppleProvider.readiness)(
+              effectiveLanguage(language: language));
+          appleReadiness = appleOk;
+          _readiness = FreemiumReadiness.ready;
+          notifyListeners();
+          return _readiness;
+        }
+      } catch (e) {
+        Logger.debug('[Freemium] Error checking model readiness: $e');
+      }
+
       appleReadiness =
           await (appleReadinessReader ?? OnDeviceAppleProvider.readiness)(effectiveLanguage(language: language));
       _readiness = appleReadiness!.ready ? FreemiumReadiness.ready : FreemiumReadiness.requiresSetup;
