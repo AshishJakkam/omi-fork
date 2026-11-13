@@ -57,6 +57,18 @@ Stream<List<Uint8List>> readOnDeviceChunks(File file, int framesPerSecond) async
 
 class PreparedContinuationDisabled implements Exception {}
 
+/// A recording that cannot produce a transcript, no matter how often it is retried: a
+/// truncated WAL frame, or audio the engine heard nothing in. Kept distinct from the errors
+/// that describe the whole environment (no network, model not installed) because only these
+/// may be stepped over — the queue retries from the front, so one of them used to abort every
+/// run at the same file and leave the entire backlog behind it stuck forever.
+class RecordingFault implements Exception {
+  const RecordingFault(this.reason);
+  final String reason;
+  @override
+  String toString() => 'Recording needs attention ($reason)';
+}
+
 /// Apple's speech engine takes a concrete locale, never the app's "multi" preference.
 ///
 /// `SpeechAnalyzerTranscription.locale(for:)` returns nil for an auto-detect sentinel, the
@@ -90,6 +102,9 @@ class OnDeviceRunner with WidgetsBindingObserver {
   bool _cancelled = false;
   final _published = <String>{};
   int? _publishedGeneration;
+  /// Recordings this process already found untranscribable; retrying them in the same
+  /// session only fails the run again, so the backlog steps over them.
+  final _untranscribable = <String>{};
   String? lastError;
   int pendingSeconds = 0;
   static const channel = MethodChannel('com.omi/on_device');
@@ -191,12 +206,34 @@ class OnDeviceRunner with WidgetsBindingObserver {
       if (!decision.shouldRun) return;
       controller.markRunFailure(false);
       controller.markRun(running: true);
+      var transcribed = 0, skipped = 0;
       for (final wal in pending) {
         if (!hasModel && (!resumePrepared || wal.onDevicePreparedUpload == null)) continue;
         if (_cancelled || generation != sync.sessionGeneration) return;
-        await _process(wal, generation);
+        final key = wal.getFileName();
+        if (_untranscribable.contains(key)) {
+          skipped++;
+          continue;
+        }
+        try {
+          await _process(wal, generation);
+          transcribed++;
+        } on RecordingFault catch (error) {
+          skipped++;
+          _untranscribable.add(key);
+          unawaited(OnDeviceFileLog.write('skip $key reason=${error.reason}'));
+        } on FormatException catch (error) {
+          // Damaged custody: retained on disk for the user, never a reason to stop the queue.
+          skipped++;
+          _untranscribable.add(key);
+          unawaited(OnDeviceFileLog.write('skip $key reason=malformed:${error.message}'));
+        }
       }
-      lastError = null;
+      // A backlog that drained is a success even when a few recordings were stepped over, so
+      // the banner only reports failure when this run produced nothing at all.
+      lastError = transcribed == 0 && skipped > 0 ? 'untranscribable' : null;
+      controller.markRunFailure(lastError != null);
+      unawaited(OnDeviceFileLog.write('run done transcribed=$transcribed skipped=$skipped'));
     } catch (error, stack) {
       // Keep original bytes and retry from them. No transcript content in error logs.
       if (_cancelled || (error is PlatformException && error.code == 'CANCELLED')) {
@@ -314,9 +351,9 @@ class OnDeviceRunner with WidgetsBindingObserver {
         whisper?.dispose();
       }
     }
-    if (segments.isEmpty) throw StateError('No speech recognized; audio retained');
+    if (segments.isEmpty) throw const RecordingFault('no_speech');
     // refactor: superseded by on_device_segment_upload when clients_from_segments_chunks=serve
-    if (!chunked && segments.length > 500) throw StateError('Transcript exceeds ingestion limit; audio retained');
+    if (!chunked && segments.length > 500) throw const RecordingFault('too_long');
     if (_cancelled || generation != sync.sessionGeneration) return;
     final started = DateTime.fromMillisecondsSinceEpoch(wal.timerStart * 1000, isUtc: true);
     final finished = started.add(Duration(milliseconds: (offset * 1000).round()));

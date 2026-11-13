@@ -558,6 +558,81 @@ void main() {
     expect(applyOnDeviceProjection(row, enabled: true), same(row));
   });
 
+  // The reported symptom: the banner said "Failed to transcribe audio" and the queue
+  // never moved off its first few items. A recording that yields no words is kept for a
+  // retry, but it used to abort the run at the front of the backlog, so nothing behind it
+  // could ever be transcribed.
+  test('a recording with no speech does not wedge the rest of the backlog', () async {
+    await recording();
+    Wal backlog(int start) => Wal(
+        timerStart: start,
+        codec: BleAudioCodec.pcm16,
+        seconds: 61,
+        status: WalStatus.miss,
+        storage: WalStorage.disk,
+        filePath: 'synthetic.bin');
+    final sync = LocalWalSyncImpl(_Listener());
+    sync.testWals = [backlog(1700000000), backlog(1700000100), backlog(1700000200)];
+    final controller = OnDeviceTranscriptionController(model: FakeOnDeviceModel(), power: FakePhonePowerSource());
+    controller.debugActivate(settings: const OnDeviceSettings(enabled: true, keepEverythingOnDevice: true));
+    controller.updateEntitlement(atCap: true, paid: false);
+
+    var calls = 0;
+    final rows = <ServerConversation>[];
+    final runner = OnDeviceRunner(
+        sync: sync,
+        controller: controller,
+        publish: rows.add,
+        transcribeChunk: (bytes, language) async {
+          calls++;
+          // The first recording is 61s, so its three chunks are the silent ones.
+          if (calls <= 3) return const OnDeviceBatchResult(engine: 'synthetic', text: '', words: []);
+          final duration = (bytes.length - 44) / 32000;
+          return OnDeviceBatchResult(
+              engine: 'synthetic', text: 'Spoken sentence.', words: [OnDeviceWord('Spoken sentence.', 0, duration)]);
+        });
+
+    await runner.run(transcribeNow: true);
+
+    expect(rows, hasLength(2), reason: 'the two recordings after the silent one still landed');
+    expect(runner.lastError, isNull, reason: 'a drained backlog is not a failure');
+    final all = await sync.getAllWals();
+    expect(all.where((w) => w.onDeviceConversation == null), hasLength(1), reason: 'the silent audio is retained');
+
+    runner.dispose();
+    controller.dispose();
+  });
+
+  test('a backlog where nothing can be transcribed still reports failure', () async {
+    await recording();
+    final sync = LocalWalSyncImpl(_Listener());
+    sync.testWals = [
+      Wal(
+          timerStart: 1700000000,
+          codec: BleAudioCodec.pcm16,
+          seconds: 61,
+          status: WalStatus.miss,
+          storage: WalStorage.disk,
+          filePath: 'synthetic.bin')
+    ];
+    final controller = OnDeviceTranscriptionController(model: FakeOnDeviceModel(), power: FakePhonePowerSource());
+    controller.debugActivate(settings: const OnDeviceSettings(enabled: true, keepEverythingOnDevice: true));
+    controller.updateEntitlement(atCap: true, paid: false);
+    final runner = OnDeviceRunner(
+        sync: sync,
+        controller: controller,
+        publish: (_) {},
+        transcribeChunk: (bytes, language) async =>
+            const OnDeviceBatchResult(engine: 'synthetic', text: '', words: []));
+
+    await runner.run(transcribeNow: true);
+
+    expect(runner.lastError, 'untranscribable');
+
+    runner.dispose();
+    controller.dispose();
+  });
+
   test('v5 digest binds attribution and canonical UTF8 fields', () {
     TranscriptSegment segment(String text, {bool user = false}) => TranscriptSegment(
         id: '1',
