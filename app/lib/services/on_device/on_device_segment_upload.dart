@@ -42,7 +42,12 @@ Future<String> uploadOnDeviceSegments(
       case ApiSuccess<String>():
         resultId = response.data;
       case ApiFailure<String>():
-        throw StateError('Transcript ingestion ${response.problem.kind.name}');
+        // The status and the backend's own validation message are what a 422 needs to be
+        // actionable; the segment text is deliberately left out of the log.
+        final problem = response.problem;
+        throw StateError('Transcript ingestion ${problem.kind.name}'
+            '${problem.statusCode == null ? '' : ' (${problem.statusCode})'}'
+            '${problem.detail == null ? '' : ': ${problem.detail!.length > 200 ? problem.detail!.substring(0, 200) : problem.detail!}'}');
     }
   }
   if (!canSend()) throw StateError('Transcript upload cancelled');

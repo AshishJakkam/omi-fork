@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:omi/models/stt_result.dart';
+import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'package:omi/services/sockets/local_stt_failure.dart';
 import 'package:omi/services/custom_stt_log_service.dart';
 import 'package:omi/services/sockets/pure_socket.dart';
@@ -192,11 +193,17 @@ class PurePollingSocket implements IPureSocket {
       // Providers own deadlines and resource cleanup. Timing out only this
       // Future would release the processing flag while recognition is still
       // running, allowing the next flush to submit the same audio again.
+      final flushWatch = Stopwatch()..start();
       final result = await sttProvider.transcribe(audioData, audioOffsetSeconds: _audioOffsetSeconds);
       if (generation != _connectionGeneration) return;
       _bufferingSince = null;
       _consecutiveFailures = 0;
       if (result?.audioEndSeconds != null) _audioOffsetSeconds = result!.audioEndSeconds!;
+      // A live window that produces no text looks identical to one that never ran, and the
+      // transcript itself cannot be logged, so state the timing and the shape instead.
+      unawaited(OnDeviceFileLog.write('polling service=$serviceId frames=${frames.length} '
+          'bytes=${audioData.length} took=${flushWatch.elapsedMilliseconds}ms '
+          'segments=${result?.segments.length ?? 0}'));
       if (result != null && result.isNotEmpty) {
         if (result.segments.isNotEmpty) {
           _audioOffsetSeconds = result.audioEndSeconds ?? result.segments.last.end;
