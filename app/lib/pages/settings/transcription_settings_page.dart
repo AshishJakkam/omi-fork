@@ -109,7 +109,11 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     final stored = _configsPerProvider[provider]?.language;
     // A stored language the provider cannot speak would otherwise be sent as-is, so a bad value
     // (for example a model name saved into the language slot) silently breaks every request.
-    final supported = SttLanguage.supported(provider);
+    //
+    // Validated against the provider's own list, not the picker's: iOS hides "multi" because the
+    // system recogniser has no auto-detect, but a whisper model does, and that is exactly the
+    // setting a multilingual household needs.
+    final supported = SttProviderConfig.get(provider).supportedLanguages;
     if (stored == null || stored.isEmpty || !supported.contains(stored)) return derived;
     return stored;
   }
