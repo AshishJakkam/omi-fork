@@ -30,9 +30,15 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
   $status = $null
   for ($i = 0; $i -lt 80; $i++) {
     Start-Sleep -Seconds 15
-    $status = & $gh run view $id -R $repo --json status,conclusion 2>$null | ConvertFrom-Json
-    if ($status.status -eq 'completed') { break }
+    try {
+      $status = & $gh run view $id -R $repo --json status,conclusion 2>$null | ConvertFrom-Json
+      if ($status.status -eq 'completed') { break }
+    } catch {
+      # A dropped connection must not end the loop; the run keeps going regardless.
+      Log "poll error (continuing): $($_.Exception.Message.Split([char]10)[0])"
+    }
   }
+  if (-not $status) { Log "attempt ${attempt}: no status after polling - retrying"; continue }
 
   if ($status.conclusion -ne 'success') {
     $stepCount = 0
