@@ -289,6 +289,8 @@ class OnDeviceRunner with WidgetsBindingObserver {
       } else {
         whisper = OnDeviceWhisperProvider(modelPath: model, language: language, onDeviceOverflowEnabled: true);
       }
+      unawaited(OnDeviceFileLog.write(
+          'engine=${whisper == null ? (Platform.isIOS ? 'apple' : 'none') : 'whisper'} model=${model ?? 'none'}'));
     }
     final transcoder = wal.codec.isOpusSupported()
         ? OpusToWavTranscoder(sampleRate: wal.sampleRate, channels: wal.channel)
@@ -312,6 +314,7 @@ class OnDeviceRunner with WidgetsBindingObserver {
             } catch (error) {
               // Apple remains the iOS safety net: a model the native plugin cannot load must
               // degrade to a transcript, not to a permanently stuck recording.
+              unawaited(OnDeviceFileLog.write('whisper failed: $error'));
               if (!Platform.isIOS) rethrow;
               final result = await apple.transcribe(wav, language: _appleLanguage(language));
               engine = result.engine;

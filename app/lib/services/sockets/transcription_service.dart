@@ -12,6 +12,8 @@ import 'package:omi/backend/schema/transcript_segment.dart';
 import 'package:omi/env/env.dart';
 import 'package:omi/models/custom_stt_config.dart';
 import 'package:omi/models/stt_provider.dart';
+import 'package:omi/services/freemium_transcription_service.dart';
+import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'package:omi/services/sockets/listen_client_state.dart';
 import 'package:omi/services/sockets/on_device_apple_provider.dart';
 import 'package:omi/services/sockets/on_device_whisper_provider.dart';
@@ -642,8 +644,30 @@ class TranscriptSocketServiceFactory {
 
     // Special handling for On-Device Whisper
     if (config.provider == SttProvider.onDeviceWhisper) {
-      // Use Native iOS Speech Recognition on iOS
       if (Platform.isIOS) {
+        // iOS used to hand every on-device session to Apple's recogniser whatever model was
+        // chosen, so picking the downloaded whisper model - which people do exactly when Apple
+        // handles their language badly, Telugu and Hindi here - still transcribed with Apple and
+        // the live screen stayed empty. An installed model wins; Apple stays the fallback so a
+        // phone without a model keeps today's behaviour.
+        final modelPath = _installedWhisperModelPath(config);
+        unawaited(OnDeviceFileLog.write('live engine=${modelPath == null ? 'apple' : 'whisper'} '
+            'model=${modelPath == null ? 'none' : modelPath.split('/').last}'));
+        if (modelPath != null) {
+          return PurePollingSocket(
+            config: AudioPollingConfig(
+              bufferDuration: const Duration(seconds: 5),
+              minBufferSizeBytes: sampleRate * 2,
+              serviceId: config.provider.name,
+              transcoder: transcoder,
+            ),
+            sttProvider: OnDeviceWhisperProvider(
+              modelPath: modelPath,
+              language: config.language ?? 'en',
+              onDeviceOverflowEnabled: true,
+            ),
+          );
+        }
         return PurePollingSocket(
           config: AudioPollingConfig(
             bufferDuration: const Duration(seconds: 5),
@@ -685,6 +709,19 @@ class TranscriptSocketServiceFactory {
         requestType: requestType,
       ),
     );
+  }
+
+  /// The whisper model the live lane can actually run, or null to stay on Apple.
+  ///
+  /// `checkReadiness()` has already resolved the downloaded model by the time a capture opens a
+  /// socket, so the cached path is the one honouring the person's model choice; the stored config
+  /// URL is only a fallback because it goes stale whenever the app container is recreated.
+  static String? _installedWhisperModelPath(CustomSttConfig config) {
+    final cached = FreemiumTranscriptionService().cachedModelPath;
+    if (cached != null && File(cached).existsSync()) return cached;
+    final stored = config.url;
+    if (stored != null && stored.isNotEmpty && File(stored).existsSync()) return stored;
+    return null;
   }
 
   /// Build URL with query parameters
