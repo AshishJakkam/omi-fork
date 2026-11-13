@@ -175,6 +175,17 @@ class CaptureController extends ChangeNotifier
   bool _mobileStandardBatchAllowed = false;
   bool _mobileBatchOwnsSocketAudio = false;
 
+  /// Whether this capture's socket should still be fed while the batch runner owns the audio.
+  ///
+  /// On-device transcription keeps phone audio off the socket on purpose: the runner transcribes
+  /// it from the WAL and nothing needs uploading. A socket whose engine also runs on this phone is
+  /// not an upload, and starving it means the live transcript can never fill - which is why
+  /// choosing the downloaded model left the live screen blank while the batch kept working. The
+  /// WAL still owns the audio (`LocalSttCustody.keepsPhoneAudio` keeps its frames unconfirmed), and
+  /// "keep everything on device" still means nothing is transcribed live at all.
+  bool get _feedsOnDeviceSocket =>
+      LocalSttCustody.keepsPhoneAudio && !OnDeviceTranscriptionController.instance.settings.keepEverythingOnDevice;
+
   void installMobileStandardBatch(MobileStandardBatch lane) {
     if (_captureControllerDisposed) {
       unawaited(lane.close());
@@ -590,7 +601,7 @@ class CaptureController extends ChangeNotifier
         for (final frame in frames) {
           final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
           if (_socket?.state == SocketServiceState.connected &&
-              !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+              (!OnDeviceTranscriptionController.instance.shouldKeepAudioLocal || _feedsOnDeviceSocket)) {
             if (positioned.captureRoot != null) {
               _socket?.sendEvidenceFrame(positioned);
             } else {
@@ -3083,7 +3094,7 @@ class CaptureController extends ChangeNotifier
             final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
 
             if (_socket?.state == SocketServiceState.connected &&
-                !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+                (!OnDeviceTranscriptionController.instance.shouldKeepAudioLocal || _feedsOnDeviceSocket)) {
               if (positioned.captureRoot != null) {
                 _socket?.sendEvidenceFrame(positioned);
               } else {
