@@ -18,14 +18,29 @@ function Log([string]$m) {
 
 Log "start: up to $MaxAttempts attempts"
 
-for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-  Log "attempt ${attempt}: dispatching"
-  & $gh workflow run ios-unsigned.yml -R $repo -f app_profile=$Profile -f force_on_device=true -f include_watch=false 2>$null | Out-Null
-  Start-Sleep -Seconds 20
+# The workflow cancels runs of the same ref when a new one is dispatched, so dispatching while
+# anything is already queued destroys that run - which is what made retrying self-defeating.
+function Find-LiveRun {
+  $runs = & $gh run list -R $repo -w ios-unsigned.yml -L 10 --json databaseId,status,headSha 2>$null | ConvertFrom-Json
+  foreach ($r in $runs) {
+    if (@('queued', 'pending', 'waiting', 'requested', 'in_progress') -contains $r.status) { return $r }
+  }
+  return $null
+}
 
-  $run = (& $gh run list -R $repo -L 1 --json databaseId 2>$null | ConvertFrom-Json)[0]
-  $id = $run.databaseId
-  Log "attempt ${attempt}: run $id"
+for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+  $live = Find-LiveRun
+  if ($live) {
+    $id = $live.databaseId
+    Log "attempt ${attempt}: adopting live run $id ($($live.status), $($live.headSha.Substring(0,7)))"
+  } else {
+    Log "attempt ${attempt}: dispatching"
+    & $gh workflow run ios-unsigned.yml -R $repo -f app_profile=$Profile -f force_on_device=true -f include_watch=false 2>$null | Out-Null
+    Start-Sleep -Seconds 20
+    $run = (& $gh run list -R $repo -L 1 --json databaseId 2>$null | ConvertFrom-Json)[0]
+    $id = $run.databaseId
+    Log "attempt ${attempt}: run $id"
+  }
 
   $status = $null
   for ($i = 0; $i -lt 80; $i++) {
