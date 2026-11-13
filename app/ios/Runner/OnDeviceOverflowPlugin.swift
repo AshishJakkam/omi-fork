@@ -46,6 +46,29 @@ final class OnDeviceOverflowPlugin {
     }
     private var marker: URL { directory.appendingPathComponent("installed") }
 
+    /// The whisper model the reader downloaded, chosen the way the transcriptions choose it:
+    /// the largest file wins. The channel used to describe only Apple's engines, so a phone whose
+    /// transcriptions ran on a downloaded whisper model reported no model at all - and the queue
+    /// read that as "unsupported" and returned before transcribing anything.
+    private var whisperModel: URL? {
+        let models = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("models", isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: models.path)) ?? []
+        var best: (url: URL, size: Int)?
+        for name in names where name.hasPrefix("ggml-") && name.hasSuffix(".bin") {
+            let url = models.appendingPathComponent(name)
+            let size = whisperModelSize(url)
+            if size > (best?.size ?? -1) { best = (url, size) }
+        }
+        return best?.url
+    }
+
+    private func whisperModelSize(_ url: URL) -> Int {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? Int else { return 0 }
+        return size
+    }
+
     private func engine(language: String) async -> String {
         if #available(iOS 26, *), SpeechTranscriber.isAvailable, await SpeechAnalyzerTranscription.locale(for: language) != nil {
             return "speech_analyzer"
@@ -94,6 +117,14 @@ final class OnDeviceOverflowPlugin {
             return
         }
         if call.method == "status" {
+            // A downloaded whisper model is the engine the transcriptions actually use, so it has to
+            // win here: Apple's engines cannot speak every language the model can, and reporting an
+            // unsupported Apple engine hides a phone that is perfectly able to transcribe.
+            if phase != "downloading", let model = whisperModel {
+                reply(["engine": "whisper", "phase": "installed", "progress": 1,
+                       "sizeBytes": whisperModelSize(model)])
+                return
+            }
             Task {
                 let selected = await engine(language: language)
                 var installed = false

@@ -7,16 +7,17 @@ param(
   [int]$SettleSeconds = 45
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $ios = 'C:\Users\ashis\Tools\go-ios\ios.exe'
 
+# go-ios writes its progress lines to stderr; a Stop preference would treat that as a failure.
 if ($Launch) {
-  & $ios launch --bundleid=$BundleId 2>&1 | Out-Null
+  & cmd /c "`"$ios`" launch $BundleId --kill-existing 2>nul >nul"
   Start-Sleep -Seconds $SettleSeconds
 }
 
 if (Test-Path $OutPath) { Remove-Item $OutPath -Force }
-& $ios file pull --app=$BundleId --remote=Documents/on_device.log --local=$OutPath 2>&1 | Out-Null
+& cmd /c "`"$ios`" file pull --app=$BundleId --remote=Documents/on_device.log --local=`"$OutPath`" 2>nul >nul"
 
 if (-not (Test-Path $OutPath)) { Write-Output 'no on_device.log on the device'; exit 1 }
 Write-Output "pulled $((Get-Item $OutPath).Length) bytes"
