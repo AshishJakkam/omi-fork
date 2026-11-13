@@ -41,3 +41,8 @@ Log "staged $OutFile ($([math]::Round($ipa.Length / 1MB, 1)) MB)"
 Log 'installing'
 & (Join-Path $PSScriptRoot 'auto-install.ps1') -Ipa $OutFile 2>&1 | ForEach-Object { Log "  $_" }
 Log "install exit: $LASTEXITCODE"
+
+if ($LASTEXITCODE -eq 0) {
+  Log 'launching and collecting the on-device log'
+  & (Join-Path $PSScriptRoot 'pull-device-log.ps1') -Launch 2>&1 | ForEach-Object { Log "  $_" }
+}
