@@ -25,6 +25,14 @@ class OnDeviceWhisperProvider implements ISttProvider {
   bool _isInitialized = false;
   final OnDeviceTranscriptQualityGate _qualityGate = OnDeviceTranscriptQualityGate();
 
+  /// Sessions stay loaded across recordings, keyed by model file.
+  ///
+  /// Reading the model is the single most expensive thing here - it measured ~22 s on the first
+  /// window of every recording - so the live transcript started empty for that long. Holding one
+  /// reference for the process lifetime means a recording begins on a warm model. The native
+  /// session is reference counted, so the batch runner and the live socket share it safely.
+  static final Map<String, WhisperSession> _warmSessions = {};
+
   OnDeviceWhisperProvider({required this.modelPath, this.language = 'en', this.onDeviceOverflowEnabled});
 
   Future<void> _ensureInitialized() async {
@@ -62,8 +70,15 @@ class OnDeviceWhisperProvider implements ISttProvider {
       // model file, which measured ~12 s on an iPhone 16 Pro and dominated every 5 s live window;
       // without the session API (an older platform binary) the per-call path still works.
       if (WhisperSession.isSupported) {
+        final existing = _warmSessions[modelPath];
+        if (existing != null && existing.isOpen) {
+          _session = existing;
+          _isInitialized = true;
+          return;
+        }
         final session = WhisperSession(model: targetModel, modelPath: modelPath);
         if (await session.open()) {
+          _warmSessions[modelPath] = session;
           _session = session;
           _isInitialized = true;
           CustomSttLogService.instance.info('OnDeviceWhisper', 'Session opened with model: $filename');
@@ -260,9 +275,8 @@ class OnDeviceWhisperProvider implements ISttProvider {
 
   @override
   void dispose() {
-    final session = _session;
+    // The session is shared and stays warm; only this provider's reference goes away.
     _session = null;
-    if (session != null) unawaited(session.close());
     _whisper = null;
     _isInitialized = false;
   }
