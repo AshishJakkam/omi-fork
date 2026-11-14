@@ -204,6 +204,14 @@ class OnDeviceRunner with WidgetsBindingObserver {
           await controller.evaluate(pendingAudio: Duration(seconds: pendingSeconds), transcribeNow: transcribeNow);
       unawaited(OnDeviceFileLog.write('decision run=${decision.shouldRun} reason=${decision.reason.name}'));
       if (!decision.shouldRun) return;
+      // The live socket and this runner share one model behind one native mutex, so a batch
+      // inference in flight makes the next live window wait for it (measured 14.8 s for 3 s of
+      // audio). Step aside while live windows are arriving; the backlog resumes on its own once
+      // they stop, because the gate is a timestamp and not a flag.
+      if (LocalSttCustody.liveLaneActive) {
+        unawaited(OnDeviceFileLog.write('run deferred: live transcription is using the model'));
+        return;
+      }
       controller.markRunFailure(false);
       controller.markRun(running: true);
       var transcribed = 0, skipped = 0;

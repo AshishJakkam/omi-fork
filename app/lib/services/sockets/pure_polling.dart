@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:omi/models/stt_result.dart';
+import 'package:omi/services/capture/local_stt_custody.dart';
 import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'package:omi/services/sockets/local_stt_failure.dart';
 import 'package:omi/services/custom_stt_log_service.dart';
@@ -201,9 +202,12 @@ class PurePollingSocket implements IPureSocket {
       if (result?.audioEndSeconds != null) _audioOffsetSeconds = result!.audioEndSeconds!;
       // A live window that produces no text looks identical to one that never ran, and the
       // transcript itself cannot be logged, so state the timing and the shape instead.
-      unawaited(OnDeviceFileLog.write('polling service=$serviceId frames=${frames.length} '
+      unawaited(OnDeviceFileLog.write(
+          'polling service=$serviceId frames=${frames.length} '
           'bytes=${audioData.length} took=${flushWatch.elapsedMilliseconds}ms '
           'segments=${result?.segments.length ?? 0}'));
+      // Tells the batch runner to step aside while the live lane is using the model.
+      LocalSttCustody.lastLiveWindowAt = DateTime.now();
       if (result != null && result.isNotEmpty) {
         if (result.segments.isNotEmpty) {
           _audioOffsetSeconds = result.audioEndSeconds ?? result.segments.last.end;
