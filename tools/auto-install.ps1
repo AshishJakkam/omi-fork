@@ -32,6 +32,8 @@ foreach ($t in $texts) {
   if ($t.Current.Name -match '\.ipa') { $loaded = $t.Current.Name; break }
 }
 $want = [System.IO.Path]::GetFileName($Ipa)
+# Sideloadly renders the loaded name with zero-width characters, so compare without them.
+if ($loaded) { $loaded = $loaded -replace "[\u200B-\u200D\uFEFF]", '' }
 if ($loaded -and $loaded -notlike "*$want*") { throw "Sideloadly has '$loaded' loaded, expected $want" }
 
 # 3. Press Start.

@@ -189,11 +189,11 @@ class PurePollingSocket implements IPureSocket {
     }
 
     final serviceId = config.serviceId ?? 'Polling';
+    final flushWatch = Stopwatch()..start();
     try {
       // Providers own deadlines and resource cleanup. Timing out only this
       // Future would release the processing flag while recognition is still
       // running, allowing the next flush to submit the same audio again.
-      final flushWatch = Stopwatch()..start();
       final result = await sttProvider.transcribe(audioData, audioOffsetSeconds: _audioOffsetSeconds);
       if (generation != _connectionGeneration) return;
       _bufferingSince = null;
@@ -216,6 +216,10 @@ class PurePollingSocket implements IPureSocket {
       }
     } catch (e, trace) {
       if (generation != _connectionGeneration) return;
+      // A window that fails is otherwise invisible: the socket retries silently and the screen
+      // just stops filling, so name the failure in the on-device log.
+      unawaited(OnDeviceFileLog.write(
+          'polling failed service=$serviceId after=${flushWatch.elapsedMilliseconds}ms: $e'));
       CustomSttLogService.instance.error(serviceId, 'Transcription error: $e');
       DebugLogManager.logError(e, trace, 'polling_socket_transcription_error', {'service_id': serviceId});
       _consecutiveFailures++;
