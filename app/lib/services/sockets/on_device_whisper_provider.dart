@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -20,6 +21,7 @@ class OnDeviceWhisperProvider implements ISttProvider {
   final String language;
   final bool? onDeviceOverflowEnabled;
   Whisper? _whisper;
+  WhisperSession? _session;
   bool _isInitialized = false;
   final OnDeviceTranscriptQualityGate _qualityGate = OnDeviceTranscriptQualityGate();
 
@@ -53,6 +55,24 @@ class OnDeviceWhisperProvider implements ISttProvider {
         CustomSttLogService.instance.warning(
           'OnDeviceWhisper',
           'Unknown model filename "$filename", defaulting to tiny.',
+        );
+      }
+
+      // Load the model once for the whole recording. Whisper's per-call init reads the entire
+      // model file, which measured ~12 s on an iPhone 16 Pro and dominated every 5 s live window;
+      // without the session API (an older platform binary) the per-call path still works.
+      if (WhisperSession.isSupported) {
+        final session = WhisperSession(model: targetModel, modelPath: modelPath);
+        if (await session.open()) {
+          _session = session;
+          _isInitialized = true;
+          CustomSttLogService.instance.info('OnDeviceWhisper', 'Session opened with model: $filename');
+          return;
+        }
+        await session.close();
+        CustomSttLogService.instance.warning(
+          'OnDeviceWhisper',
+          'Session could not load $filename; falling back to a load per call.',
         );
       }
 
@@ -165,7 +185,8 @@ class OnDeviceWhisperProvider implements ISttProvider {
       final sw = Stopwatch()..start();
       await _ensureInitialized();
 
-      if (_whisper == null) return null;
+      final session = _session;
+      if (_whisper == null && (session == null || !session.isOpen)) return null;
 
       final tempDir = await getTemporaryDirectory();
       final tempFile = File('${tempDir.path}/temp_audio_${DateTime.now().millisecondsSinceEpoch}.wav');
@@ -174,9 +195,11 @@ class OnDeviceWhisperProvider implements ISttProvider {
       try {
         final req = buildTranscribeRequest(tempFile.path, language: language, wordTimestamps: enhanced);
 
-        final res = await _whisper!.transcribe(transcribeRequest: req);
+        final res = session != null
+            ? await session.transcribe(request: req)
+            : await _whisper!.transcribe(transcribeRequest: req);
 
-        if (res.text.isEmpty) {
+        if (res == null || res.text.isEmpty) {
           return null;
         }
 
@@ -237,6 +260,9 @@ class OnDeviceWhisperProvider implements ISttProvider {
 
   @override
   void dispose() {
+    final session = _session;
+    _session = null;
+    if (session != null) unawaited(session.close());
     _whisper = null;
     _isInitialized = false;
   }
