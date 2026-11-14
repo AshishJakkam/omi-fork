@@ -123,8 +123,24 @@ ApiResult<T> _decodeSuccess<T>(String body, T Function(String) decode, {bool tru
 String? _boundedDetail(String body) {
   try {
     final decoded = jsonDecode(body);
-    final detail = decoded is Map ? decoded['detail'] : null;
+    if (decoded is! Map) return null;
+    final detail = decoded['detail'];
     if (detail is String && RegExp(r'^[a-z0-9_]{1,64}$').hasMatch(detail)) return detail;
+    // FastAPI reports a validation failure as a list of `loc` + `type` records. Those are field
+    // names and error codes, never request content, and without them a 422 says only
+    // "unprocessable" - which is not enough to tell a malformed body from a stale client.
+    if (detail is List) {
+      final parts = <String>[];
+      for (final item in detail.take(3)) {
+        if (item is! Map) continue;
+        final loc = item['loc'];
+        final type = item['type'];
+        if (loc is List && loc.isNotEmpty) {
+          parts.add('${loc.where((part) => part is! int).join('.')}:${type ?? 'invalid'}');
+        }
+      }
+      if (parts.isNotEmpty) return parts.join('; ');
+    }
   } catch (_) {}
   return null;
 }
