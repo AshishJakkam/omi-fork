@@ -109,6 +109,18 @@ class SttLanguages {
     'vi',
     'th',
     'id',
+    // Whisper transcribes the Indic languages a multilingual household actually speaks, and
+    // leaving them out made the on-device provider announce "Telugu isn't supported by this
+    // provider" and quietly transcribe everything as English instead.
+    'te',
+    'ta',
+    'kn',
+    'ml',
+    'bn',
+    'gu',
+    'mr',
+    'pa',
+    'ur',
   ];
 
   static const List<String> deepgramSupported = [

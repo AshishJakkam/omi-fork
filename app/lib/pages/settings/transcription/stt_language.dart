@@ -59,6 +59,22 @@ abstract final class SttLanguage {
   static Future<void> setOverridden(SttProvider provider, bool overridden) =>
       SharedPreferencesUtil().saveString(_key(provider), overridden ? 'on' : 'off');
 
+  /// The language [provider] actually runs with.
+  ///
+  /// An override wins only when it is a language the provider can speak, so a stale or bad stored
+  /// value cannot break every request; otherwise the primary language decides, exactly as the
+  /// Transcription page shows it. The capture socket uses this so what the screen promises is what
+  /// the engine is handed - reading the raw stored field instead kept transcribing English after
+  /// the primary language had been changed.
+  static String resolve(SttProvider provider, {CustomSttConfig? saved, String? primary}) {
+    if (isOverridden(provider, saved: saved, primary: primary)) {
+      final stored = saved?.language;
+      final supported = SttProviderConfig.get(provider).supportedLanguages;
+      if (stored != null && stored.isNotEmpty && supported.contains(stored)) return stored;
+    }
+    return derived(provider, primary ?? SharedPreferencesUtil().userPrimaryLanguage);
+  }
+
   /// Rewrites every saved provider config that follows the primary language (and the active one) to
   /// [primary]. [previous] is the primary language before the change (for configs saved before the
   /// override flag existed). Returns true when the active Custom STT config changed, so the caller

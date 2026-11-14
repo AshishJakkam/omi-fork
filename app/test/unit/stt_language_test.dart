@@ -83,4 +83,28 @@ void main() {
     expect(await SttLanguage.syncToPrimary('de', previous: 'es'), isFalse);
     expect(SharedPreferencesUtil().customSttConfig.isEnabled, isFalse);
   });
+
+  group('the language the engine actually gets', () {
+    test('a Telugu primary language reaches the on-device whisper model', () {
+      const saved = CustomSttConfig(provider: SttProvider.onDeviceWhisper);
+      expect(
+        SttLanguage.resolve(SttProvider.onDeviceWhisper, saved: saved, primary: 'te'),
+        'te',
+        reason: 'whisper speaks Telugu, so following the primary language must not fall back to en',
+      );
+      expect(SttLanguage.derived(SttProvider.onDeviceWhisper, 'te'), 'te');
+    });
+
+    test('an explicit override wins when the provider can speak it', () async {
+      await SttLanguage.setOverridden(SttProvider.onDeviceWhisper, true);
+      const saved = CustomSttConfig(provider: SttProvider.onDeviceWhisper, language: 'hi');
+      expect(SttLanguage.resolve(SttProvider.onDeviceWhisper, saved: saved, primary: 'te'), 'hi');
+    });
+
+    test('a stored language the provider cannot speak is ignored', () async {
+      await SttLanguage.setOverridden(SttProvider.onDeviceWhisper, true);
+      const saved = CustomSttConfig(provider: SttProvider.onDeviceWhisper, language: 'base');
+      expect(SttLanguage.resolve(SttProvider.onDeviceWhisper, saved: saved, primary: 'te'), 'te');
+    });
+  });
 }

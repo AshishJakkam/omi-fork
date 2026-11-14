@@ -12,6 +12,7 @@ import 'package:omi/backend/schema/transcript_segment.dart';
 import 'package:omi/env/env.dart';
 import 'package:omi/models/custom_stt_config.dart';
 import 'package:omi/models/stt_provider.dart';
+import 'package:omi/pages/settings/transcription/stt_language.dart';
 import 'package:omi/services/freemium_transcription_service.dart';
 import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'package:omi/services/sockets/listen_client_state.dart';
@@ -651,8 +652,9 @@ class TranscriptSocketServiceFactory {
         // the live screen stayed empty. An installed model wins; Apple stays the fallback so a
         // phone without a model keeps today's behaviour.
         final modelPath = _installedWhisperModelPath(config);
+        final language = SttLanguage.resolve(config.provider, saved: config);
         unawaited(OnDeviceFileLog.write('live engine=${modelPath == null ? 'apple' : 'whisper'} '
-            'model=${modelPath == null ? 'none' : modelPath.split('/').last}'));
+            'model=${modelPath == null ? 'none' : modelPath.split('/').last} language=$language'));
         if (modelPath != null) {
           return PurePollingSocket(
             config: AudioPollingConfig(
@@ -663,7 +665,7 @@ class TranscriptSocketServiceFactory {
             ),
             sttProvider: OnDeviceWhisperProvider(
               modelPath: modelPath,
-              language: config.language ?? 'en',
+              language: language,
               onDeviceOverflowEnabled: true,
             ),
           );
@@ -675,7 +677,7 @@ class TranscriptSocketServiceFactory {
             serviceId: config.provider.name,
             transcoder: transcoder,
           ),
-          sttProvider: OnDeviceAppleProvider(language: config.language ?? 'en'),
+          sttProvider: OnDeviceAppleProvider(language: language),
         );
       }
 
