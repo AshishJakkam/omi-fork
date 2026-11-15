@@ -264,6 +264,15 @@ class OnDeviceRunner with WidgetsBindingObserver {
   Future<void> _process(Wal wal, int generation) async {
     final path = await Wal.getFilePath(wal.filePath);
     if (path == null) throw StateError('Missing WAL path');
+    // A WAL entry whose audio is gone can never be transcribed, but it used to reach whisper
+    // anyway: the missing read yielded no segments, so the entry was retried as 'no_speech' on
+    // every run, forever, and each retry paid a model load. The index measured 1,766 entries here
+    // against 127 files on disk, which is why the backlog never drained.
+    final audio = File(path);
+    if (!audio.existsSync() || audio.lengthSync() == 0) {
+      unawaited(OnDeviceFileLog.write('skip ${wal.filePath} reason=audio_missing'));
+      throw const RecordingFault('audio_missing');
+    }
     final chunked = await ClientRefactorFlags.chunkUploads();
     if (_cancelled || generation != sync.sessionGeneration) return;
     if (!chunked && wal.onDevicePreparedUpload != null) {
