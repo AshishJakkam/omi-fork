@@ -141,6 +141,11 @@ String? _boundedDetail(String body) {
       }
       if (parts.isNotEmpty) return parts.join('; ');
     }
+    // Neither shape seen so far. The keys alone say which contract the server answered with, and
+    // carry no request content.
+    if (detail is Map && detail.isNotEmpty) return 'detail_keys:${detail.keys.take(5).join(',')}';
+    final keys = decoded.keys.where((key) => key != 'detail').take(5).join(',');
+    return keys.isEmpty ? null : 'body_keys:$keys';
   } catch (_) {}
   return null;
 }
