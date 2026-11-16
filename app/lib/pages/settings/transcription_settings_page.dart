@@ -36,6 +36,7 @@ import 'package:omi/providers/home_provider.dart';
 import 'package:omi/providers/usage_provider.dart';
 import 'package:omi/services/services.dart';
 import 'package:omi/services/sockets/transcription_service.dart';
+import 'package:omi/services/stt/stt_model_catalog.dart';
 import 'package:omi/ui/ui.dart';
 import 'package:omi/utils/l10n_extensions.dart';
 import 'package:omi/utils/logger.dart';
@@ -93,6 +94,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
 
   // Per-provider language override; a provider without one follows the primary language.
   final Map<SttProvider, bool> _languageOverridden = {};
+
+  // Live model catalogue per provider. Null while the first load is in flight.
+  final Map<SttProvider, SttModelCatalog> _catalogs = {};
+  final Set<SttProvider> _catalogsLoading = {};
 
   SttProviderConfig get _currentConfig => SttProviderConfig.get(_selectedProvider);
   CustomSttConfig? get _currentProviderConfig => _configsPerProvider[_selectedProvider];
@@ -239,6 +244,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     if (_selectedProvider == SttProvider.onDeviceWhisper) {
       _checkLocalModel();
     }
+
+    // Prime the cloud model list for the provider the page opened on, so the dropdown shows the
+    // provider's real catalogue instead of waiting for a provider switch.
+    _loadCatalog(_selectedProvider);
 
     // Check for debug mode and warn user
     if (kDebugMode && _selectedProvider == SttProvider.onDeviceWhisper && !_hasShownDebugWarning) {
@@ -1010,6 +1019,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     // Track which provider was selected (name only, no keys/URLs)
     PlatformManager.instance.analytics.transcriptionProviderSelected(provider: provider.name);
 
+    // A saved key means the real model list can be fetched now; without one the built-in list
+    // stands until a key is typed, which the key field's own callback picks up.
+    _loadCatalog(provider);
+
     _validateAndSetError();
   }
 
@@ -1080,7 +1093,7 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
         // pick a cheaper or better model was to edit stored preferences by hand.
         if (_currentConfig.supportedModels.isNotEmpty) ...[
           const SizedBox(height: OmiSpacing.lg),
-          _buildModelSelector(),
+          _buildCatalogModelSelector(),
         ],
         const SizedBox(height: OmiSpacing.lg),
         _buildLanguageSelector(),
@@ -1131,6 +1144,95 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
         });
       },
     );
+  }
+
+  /// The model field for cloud providers: a list of what the provider actually offers.
+  ///
+  /// The list is fetched with the reader's key, so it cannot go stale, and it degrades quietly to a
+  /// cached or built-in list when the phone is offline or the key is rejected. Free text stays
+  /// available under "Other" so a model that the catalogue omitted is still reachable.
+  Widget _buildCatalogModelSelector() {
+    final provider = _selectedProvider;
+    final catalog = _catalogs[provider];
+    final loading = _catalogsLoading.contains(provider);
+    final models = catalog?.models ?? _currentConfig.supportedModels;
+    final current = _currentModel;
+    final known = models.contains(current);
+    final items = <DropdownMenuItem<String>>[
+      for (final model in models) DropdownMenuItem(value: model, child: Text(model, style: OmiType.subhead)),
+      if (!known)
+        DropdownMenuItem(value: current, child: Text(current.isEmpty ? 'Other…' : '$current (unlisted)', style: OmiType.subhead)),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TranscriptionFieldLabel(
+          context.l10n.modelLabel,
+          trailing: loading
+              ? const OmiSpinner(size: OmiSpinnerSize.small)
+              : catalog == null
+                  ? null
+                  : OmiIconButton(
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: 'Refresh models',
+                      color: OmiColors.textTertiary,
+                      onPressed: () => _loadCatalog(provider, force: true),
+                    ),
+        ),
+        TranscriptionDropdown<String>(
+          value: known || current.isNotEmpty ? current : _currentConfig.defaultModel,
+          hint: _currentConfig.defaultModel,
+          items: items,
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => _onLanguageOrModelChanged(null, value.trim()));
+          },
+        ),
+        const SizedBox(height: OmiSpacing.xs),
+        TranscriptionHelpText(_catalogNote(catalog)),
+      ],
+    );
+  }
+
+  /// One quiet line: which list is showing and, when a refresh failed, why.
+  String _catalogNote(SttModelCatalog? catalog) {
+    if (catalog == null) return 'Using the built-in list while models load.';
+    final base = switch (catalog.source) {
+      ModelCatalogSource.network => 'Models from ${_currentConfig.displayName}.',
+      ModelCatalogSource.cache => 'Models from ${_currentConfig.displayName}, cached '
+          '${_ageLabel(catalog.fetchedAt)}.',
+      ModelCatalogSource.builtIn => 'Showing built-in models.',
+    };
+    return catalog.note == null ? base : '$base ${catalog.note} — retrying later.';
+  }
+
+  String _ageLabel(DateTime? at) {
+    if (at == null) return 'earlier';
+    final minutes = DateTime.now().difference(at).inMinutes;
+    if (minutes < 60) return '$minutes min ago';
+    return '${(minutes / 60).round()} h ago';
+  }
+
+  /// Fetches the catalogue off the interaction path, so the page never waits on a network call.
+  void _loadCatalog(SttProvider provider, {bool force = false}) {
+    if (_catalogsLoading.contains(provider)) return;
+    final key = _configsPerProvider[provider]?.apiKey ?? '';
+    if (key.trim().isEmpty) {
+      setState(() => _catalogs[provider] =
+          SttModelCatalog(models: SttProviderConfig.get(provider).supportedModels, source: ModelCatalogSource.builtIn));
+      return;
+    }
+    setState(() => _catalogsLoading.add(provider));
+    Future(() async {
+      if (force) await SttModelCatalogService.clearCache(provider);
+      final catalog = await SttModelCatalogService.load(provider, apiKey: key);
+      if (!mounted) return;
+      setState(() {
+        _catalogsLoading.remove(provider);
+        _catalogs[provider] = catalog;
+      });
+    });
   }
 
   Widget _buildUrlConfig(String label, String hint, String help) {
