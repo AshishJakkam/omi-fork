@@ -12,7 +12,6 @@ import 'package:omi/models/stt_result.dart';
 import 'package:omi/services/custom_stt_log_service.dart';
 import 'package:omi/services/sockets/pure_socket.dart';
 import 'package:omi/services/stt/stt_usage_tracker.dart';
-import 'package:omi/services/stt/uplink_audio_conditioner.dart';
 import 'package:omi/utils/audio/audio_transcoder.dart';
 import 'package:omi/utils/debug_log_manager.dart';
 import 'package:omi/utils/logger.dart';
@@ -137,10 +136,6 @@ class GeminiStreamingSttSocket implements IPureSocket {
   IPureSocketListener? _listener;
 
   late final SttAudioTimeline _timeline = SttAudioTimeline(sampleRate: sampleRate);
-
-  /// Cloud transcription rejected the raw phone-mic stream; see
-  /// [UplinkAudioConditioner] for the measurements behind this stage.
-  late final UplinkAudioConditioner _conditioner = UplinkAudioConditioner(sampleRate: sampleRate);
   bool _setupSent = false;
 
   final List<Uint8List> _frameBuffer = [];
@@ -370,9 +365,6 @@ class GeminiStreamingSttSocket implements IPureSocket {
     }
     _frameBuffer.clear();
     _bufferedBytes = 0;
-
-    pcmData = _conditioner.process(pcmData);
-
     final realtimeInput = {
       'realtimeInput': {
         'mediaChunks': [
@@ -417,7 +409,6 @@ class GeminiStreamingSttSocket implements IPureSocket {
       }
 
       if (pcmData != null) {
-        pcmData = _conditioner.process(pcmData);
         final realtimeInput = {
           'realtimeInput': {
             'mediaChunks': [
