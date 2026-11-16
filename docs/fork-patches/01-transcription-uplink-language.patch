@@ -1,0 +1,140 @@
+﻿From 6f1d7d9f7df5bc942dee5391eaaefae907242ab5 Mon Sep 17 00:00:00 2001
+From: Ashish Jakkam <ashishjakkam@gmail.com>
+Date: Mon, 16 Nov 2026 22:40:53 +0530
+Subject: [PATCH] Send captured audio to a bring-your-own cloud provider
+
+With Omi's plan exhausted the app keeps captured audio on the phone so nothing
+is uploaded to Omi. That retention also withheld the transcription socket, so
+every frame was journalled to the WAL and none was ever written to the socket:
+a valid Gemini key produced an empty live transcript while the recording looked
+healthy, and chunks were tagged captured_on_device_only with synced_at unset.
+
+Gate the socket on the route rather than the retention decision, on all four
+audio paths (phone-mic start, phone-mic resume, pendant send, tail flush). A
+custom cloud provider gets the frames because that audio is going to a service
+the user chose and pays for; Omi's own managed upload stays withheld.
+
+Also resolve Gemini's language through SttLanguage.resolve like every other
+provider, and port that helper. Reading the raw stored field pinned Gemini to
+whatever was saved first, so changing the primary language to Telugu or Hindi
+still transcribed English.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+---
+ .../settings/transcription/stt_language.dart  | 15 ++++++++++++++
+ .../services/capture/capture_controller.dart  | 20 +++++++++++++++----
+ .../sockets/transcription_service.dart        |  6 +++++-
+ 3 files changed, 36 insertions(+), 5 deletions(-)
+
+diff --git a/app/lib/pages/settings/transcription/stt_language.dart b/app/lib/pages/settings/transcription/stt_language.dart
+index 4d5b808f0a..80e86d4802 100644
+--- a/app/lib/pages/settings/transcription/stt_language.dart
++++ b/app/lib/pages/settings/transcription/stt_language.dart
+@@ -41,6 +41,21 @@ abstract final class SttLanguage {
+     return fallback;
+   }
+ 
++  /// The language [provider] actually runs with.
++  ///
++  /// An override wins only when it is a language the provider can speak, so a stale or bad stored
++  /// value cannot break every request; otherwise the primary language decides, exactly as the
++  /// Transcription page shows it. The capture socket uses this so what the screen promises is what
++  /// the engine is handed - reading the raw stored field instead kept transcribing English after
++  /// the primary language had been changed.
++  static String resolve(SttProvider provider, {CustomSttConfig? saved, String? primary}) {
++    if (isOverridden(provider, saved: saved, primary: primary)) {
++      final stored = saved?.language;
++      final supported = SttProviderConfig.get(provider).supportedLanguages;
++      if (stored != null && stored.isNotEmpty && supported.contains(stored)) return stored;
++    }
++    return derived(provider, primary ?? SharedPreferencesUtil().userPrimaryLanguage);
++  }
+   /// Whether [provider]'s language is explicitly overridden.
+   ///
+   /// Configs saved before the override existed carry no flag: a saved language that differs from
+diff --git a/app/lib/services/capture/capture_controller.dart b/app/lib/services/capture/capture_controller.dart
+index e5237b7eec..c242b74e06 100644
+--- a/app/lib/services/capture/capture_controller.dart
++++ b/app/lib/services/capture/capture_controller.dart
+@@ -622,7 +622,7 @@ class CaptureController extends ChangeNotifier
+         for (final frame in frames) {
+           final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
+           if (_socket?.state == SocketServiceState.connected &&
+-              !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
++              (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
+             if (positioned.captureRoot != null) {
+               _socket?.sendEvidenceFrame(positioned);
+             } else {
+@@ -1148,6 +1148,18 @@ class CaptureController extends ChangeNotifier
+ 
+   /// The phone recording is paused: the microphone is released, but the socket and the recording
+   /// id (so the conversation) are kept for resume.
++  /// True when the configured provider streams to a cloud endpoint on the user's own key.
++  ///
++  /// Keeping audio on the phone protects it from Omi's servers; it must not also
++  /// withhold the uplink to a provider the user chose and pays for directly.
++  /// Without this, an exhausted Omi plan silently muted a working Gemini key:
++  /// frames were journalled to the WAL and never written to the socket, so the
++  /// live transcript stayed empty while the recording looked healthy.
++  bool get _streamsToCustomCloud {
++    final config = _preferences.customSttConfig;
++    if (!config.isEnabled) return false;
++    return config.provider != SttProvider.onDeviceWhisper && config.provider != SttProvider.localWhisper;
++  }
+   bool get _phoneMicPaused => _capture.stagedReadModel.phonePaused;
+   bool get isPhoneMicPaused => _capture.readModel.phonePaused;
+ 
+@@ -2379,7 +2391,7 @@ class CaptureController extends ChangeNotifier
+ 
+         // Send WS. A local-preview socket may hold the frame until its verdict.
+         if (_socket?.state == SocketServiceState.connected &&
+-            !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
++            (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
+           _localPreview.routePendant(
+             HeldPendantFrame(
+                 blePayload ?? source?.getSocketPayload(snapshot) ?? snapshot, positionedFrame, walAccepted, _now()),
+@@ -3126,7 +3138,7 @@ class CaptureController extends ChangeNotifier
+             final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
+ 
+             if (_socket?.state == SocketServiceState.connected &&
+-                !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
++                (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
+               if (positioned.captureRoot != null) {
+                 _socket?.sendEvidenceFrame(positioned);
+               } else {
+@@ -4788,7 +4800,7 @@ class CaptureController extends ChangeNotifier
+     for (final frame in _activeSource?.flush() ?? const []) {
+       final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
+       if (_socket?.state == SocketServiceState.connected &&
+-          !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
++          (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
+         if (positioned.captureRoot != null) {
+           _socket?.sendEvidenceFrame(positioned);
+         } else {
+diff --git a/app/lib/services/sockets/transcription_service.dart b/app/lib/services/sockets/transcription_service.dart
+index 861320480a..48229a3124 100644
+--- a/app/lib/services/sockets/transcription_service.dart
++++ b/app/lib/services/sockets/transcription_service.dart
+@@ -17,6 +17,7 @@ import 'package:omi/services/sockets/listen_client_state.dart';
+ import 'package:omi/services/sockets/on_device_apple_provider.dart';
+ import 'package:omi/services/sockets/on_device_whisper_provider.dart';
+ import 'package:omi/services/sockets/pure_socket.dart';
++import 'package:omi/pages/settings/transcription/stt_language.dart';
+ import 'package:omi/services/sockets/transcription_service.dart';
+ import 'package:omi/services/audio_sources/audio_source.dart';
+ import 'package:omi/utils/debug_log_manager.dart';
+@@ -595,7 +596,10 @@ class TranscriptSocketServiceFactory {
+         apiKey: config.apiKey ?? '',
+         model:
+             config.effectiveModel.isNotEmpty ? config.effectiveModel : 'gemini-2.5-flash-native-audio-preview-12-2025',
+-        language: config.effectiveLanguage,
++        // Resolve the language the way every other provider does. Reading the raw stored
++        // field pinned Gemini to whatever was saved first, so changing the primary language to
++        // Telugu or Hindi still transcribed English - indistinguishable from a dead socket.
++        language: SttLanguage.resolve(config.provider, saved: config),
+         sampleRate: sampleRate,
+         transcoder: transcoder,
+       );
+-- 
+2.49.0.windows.1
+
