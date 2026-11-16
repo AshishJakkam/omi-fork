@@ -219,24 +219,38 @@ class GeminiStreamingSttSocket implements IPureSocket {
   Future<void> _sendSetupMessage() async {
     if (_setupSent) return;
 
+    // A transcription model answers with text, not spoken audio, and is asked for language
+    // detection rather than a turn-based reply. Sending the conversational setup to one of these
+    // made it answer nothing, which looked like a dead socket.
+    final transcribeModel = _isTranscriptionModel(model);
     final setupMessage = {
       'setup': {
         'model': 'models/$model',
         'generationConfig': {
-          'responseModalities': ['AUDIO'],
+          'responseModalities': [transcribeModel ? 'TEXT' : 'AUDIO'],
         },
-        'inputAudioTranscription': {},
+        'inputAudioTranscription': transcribeModel && language.isNotEmpty && language != 'multi'
+            ? {
+                'languageCodes': [language],
+              }
+            : <String, dynamic>{},
       },
     };
 
     try {
       _channel!.sink.add(jsonEncode(setupMessage));
       _setupSent = true;
-      CustomSttLogService.instance.info('GeminiStreaming', 'Setup message sent');
+      CustomSttLogService.instance.info('GeminiStreaming', 'Setup message sent (model=$model)');
     } catch (e) {
       CustomSttLogService.instance.error('GeminiStreaming', 'Failed to send setup: $e');
     }
   }
+
+  /// Whether [model] is one of Gemini's dedicated speech-to-text models.
+  ///
+  /// Their setup differs: text output, and `languageCodes` instead of a conversational turn. The
+  /// transcript arrives on `serverContent.inputTranscription`, which this socket already reads.
+  static bool _isTranscriptionModel(String model) => model.contains('transcribe');
 
   void _handleMessage(dynamic message) {
     String messageStr;

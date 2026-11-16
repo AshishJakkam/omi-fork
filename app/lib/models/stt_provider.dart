@@ -314,11 +314,17 @@ class SttProviderConfig {
       requiresApiKey: true,
       requestType: SttRequestType.jsonBase64,
       supportedLanguages: SttLanguages.geminiSupported,
-      // Cheapest first. Flash-Lite is the economical choice for transcription; Pro is the most
-      // accurate and the most expensive, and the ordering makes that visible in the picker.
-      supportedModels: ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'],
-      defaultLanguage: 'en',
-      defaultModel: 'gemini-2.5-flash',
+      // Cheapest first. `gemini-3.5-transcribe` is the purpose-built speech-to-text model:
+      // $0.003/min audio against Flash's multimodal rate, with 85+ language auto-detection.
+      supportedModels: [
+        'gemini-3.5-transcribe',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash',
+        'gemini-3.8-flash',
+        'gemini-2.5-flash',
+      ],
+      defaultLanguage: 'multi',
+      defaultModel: 'gemini-3.5-transcribe',
       responseSchema: SttResponseSchema.gemini,
       apiKeyUrl: 'https://aistudio.google.com/apikey',
       docsUrl: 'https://ai.google.dev/gemini-api/docs/models/gemini',
@@ -331,9 +337,17 @@ class SttProviderConfig {
       requiresApiKey: true,
       requestType: SttRequestType.streaming,
       supportedLanguages: SttLanguages.geminiSupported,
-      supportedModels: ['gemini-2.5-flash-native-audio-preview-12-2025'],
-      defaultLanguage: 'en',
-      defaultModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      // Cheapest first. The dedicated speech-to-text model is both the cheapest and the most
+      // accurate for this job - it auto-detects 85+ languages with mid-session code-switching,
+      // which is exactly the Hinglish/Tenglish case - and the conversational Live models cost
+      // more and answer in audio.
+      supportedModels: [
+        'gemini-3.5-transcribe-live',
+        'gemini-3.8-live',
+        'gemini-3.8-live-extended-thinking',
+      ],
+      defaultLanguage: 'multi',
+      defaultModel: 'gemini-3.5-transcribe-live',
       responseSchema: SttResponseSchema.geminiLive,
       apiKeyUrl: 'https://aistudio.google.com/apikey',
       docsUrl: 'https://ai.google.dev/gemini-api/docs/models/gemini',
@@ -513,7 +527,7 @@ class SttProviderConfig {
         config['url'] =
             'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey ?? ''}';
         config['params'] = {
-          'model': mdl.isNotEmpty ? mdl : 'gemini-2.5-flash-native-audio-preview-12-2025',
+          'model': mdl.isNotEmpty ? mdl : 'gemini-3.5-transcribe-live',
           'language': lang,
         };
         break;
