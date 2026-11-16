@@ -27,6 +27,7 @@ class SttModelCatalog {
     this.note,
     this.fetchedAt,
     this.availableCount,
+    this.unusable = const [],
   });
 
   final List<String> models;
@@ -42,8 +43,13 @@ class SttModelCatalog {
   /// difference silently looks like a broken list.
   final int? availableCount;
 
+  /// The reported ids this picker cannot use, so they can be shown greyed out with the reason
+  /// rather than silently vanishing. Text-to-speech models live here: they turn text into audio,
+  /// the opposite of transcribing it.
+  final List<String> unusable;
+
   /// Models the provider offers that this picker cannot use.
-  int get hiddenCount => (availableCount ?? models.length) - models.length;
+  int get hiddenCount => (availableCount ?? models.length + unusable.length) - models.length;
 
   /// Whether asking again could plausibly return something newer.
   bool get canRefresh => source != ModelCatalogSource.network;
@@ -95,12 +101,13 @@ abstract final class SttModelCatalogService {
         return SttModelCatalog(
             models: builtIn, source: ModelCatalogSource.builtIn, note: 'no models returned');
       }
-      unawaited(_writeCache(provider, key, parsed.usable, parsed.total));
+      unawaited(_writeCache(provider, key, parsed.usable, parsed.unusable, parsed.total));
       return SttModelCatalog(
           models: parsed.usable,
           source: ModelCatalogSource.network,
           fetchedAt: DateTime.now(),
-          availableCount: parsed.total);
+          availableCount: parsed.total,
+          unusable: parsed.unusable);
     } on _CatalogUnavailable catch (error) {
       // Offline, a rejected key, or a rate limit: keep the built-in list and say so once.
       return SttModelCatalog(models: builtIn, source: ModelCatalogSource.builtIn, note: error.reason);
@@ -133,7 +140,7 @@ abstract final class SttModelCatalogService {
         _ => null,
       };
 
-  static Future<({List<String> usable, int total})> _fetch(
+  static Future<({List<String> usable, List<String> unusable, int total})> _fetch(
     SttProvider provider,
     Uri endpoint,
     String apiKey,
@@ -180,7 +187,8 @@ abstract final class SttModelCatalogService {
   static List<String> parse(SttProvider provider, Object? body) => parseWithCounts(provider, body).usable;
 
   /// The usable ids plus how many the provider reported in total.
-  static ({List<String> usable, int total}) parseWithCounts(SttProvider provider, Object? body) {
+  static ({List<String> usable, List<String> unusable, int total}) parseWithCounts(
+      SttProvider provider, Object? body) {
     final ids = <String>[];
     // Every id the provider reported, before any filter: what the catalogue page shows.
     final reported = <String>{};
@@ -232,7 +240,8 @@ abstract final class SttModelCatalogService {
       unique.add(trimmed);
     }
     final sorted = unique.toList()..sort();
-    return (usable: sorted, total: reported.length);
+    final dropped = reported.difference(sorted.toSet()).toList()..sort();
+    return (usable: sorted, unusable: dropped, total: reported.length);
   }
 
   static SttModelCatalog? _readCache(SttProvider provider, String apiKey) {
@@ -251,14 +260,15 @@ abstract final class SttModelCatalogService {
         source: ModelCatalogSource.cache,
         fetchedAt: at,
         availableCount: decoded['total'] is int ? decoded['total'] as int : models.length,
+        unusable: (decoded['unusable'] as List?)?.whereType<String>().toList() ?? const <String>[],
       );
     } catch (_) {
       return null;
     }
   }
 
-  static Future<void> _writeCache(
-      SttProvider provider, String apiKey, List<String> models, int total) async {
+  static Future<void> _writeCache(SttProvider provider, String apiKey, List<String> models,
+      List<String> unusable, int total) async {
     try {
       await SharedPreferencesUtil().saveString(
         'sttModels.${provider.name}',
@@ -266,6 +276,7 @@ abstract final class SttModelCatalogService {
           'fp': fingerprint(apiKey),
           'at': DateTime.now().toIso8601String(),
           'models': models,
+          'unusable': unusable,
           'total': total,
         }),
       );

@@ -65,9 +65,17 @@ void main() {
       });
       expect(parsed.usable, ['gemini-3.5-transcribe-live', 'gemini-3.8-live']);
       expect(parsed.total, 5);
+      // The dropped ids are kept, so the picker can show a TTS model greyed out with the reason
+      // instead of it appearing to be missing from the catalogue.
+      expect(parsed.unusable, contains('gemini-3.8-flash-lite-tts'));
+      expect(parsed.unusable, contains('text-embedding-005'));
       final catalog = SttModelCatalog(
-          models: parsed.usable, source: ModelCatalogSource.network, availableCount: parsed.total);
+          models: parsed.usable,
+          source: ModelCatalogSource.network,
+          availableCount: parsed.total,
+          unusable: parsed.unusable);
       expect(catalog.hiddenCount, 3);
+      expect(catalog.unusable, hasLength(3));
     });
 
     test('a body with no recognisable list yields an empty catalogue', () {

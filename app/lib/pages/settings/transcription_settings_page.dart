@@ -1159,10 +1159,22 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     final models = catalog?.models ?? _currentConfig.supportedModels;
     final current = _currentModel;
     final known = models.contains(current);
+    // Models the provider offers but this picker cannot use. Shown greyed out rather than hidden:
+    // a reader comparing against Google's catalogue page should see the entry and the reason.
+    final unusable = (catalog?.unusable ?? const <String>[]).take(20).toList();
     final items = <DropdownMenuItem<String>>[
       for (final model in models) DropdownMenuItem(value: model, child: Text(model, style: OmiType.subhead)),
       if (!known)
-        DropdownMenuItem(value: current, child: Text(current.isEmpty ? 'Other…' : '$current (unlisted)', style: OmiType.subhead)),
+        DropdownMenuItem(
+            value: current,
+            child: Text(current.isEmpty ? 'Other…' : '$current (unlisted)', style: OmiType.subhead)),
+      for (final model in unusable)
+        DropdownMenuItem(
+          value: null,
+          enabled: false,
+          child: Text('$model — not for transcription',
+              style: OmiType.subhead.copyWith(color: OmiColors.textTertiary)),
+        ),
     ];
 
     return Column(
@@ -1219,8 +1231,8 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     };
     final hidden = catalog.hiddenCount;
     final coverage = hidden > 0
-        ? ' ${catalog.models.length} of ${catalog.availableCount} models can do this job; '
-            '$hidden others (text-to-speech, image, embeddings) cannot.'
+        ? ' ${catalog.models.length} can transcribe; $hidden cannot (text-to-speech, image, embeddings) '
+            'and are shown greyed out.'
         : '';
     final failure = catalog.note == null ? '' : ' ${catalog.note} — retrying later.';
     return '$base$coverage$failure';
