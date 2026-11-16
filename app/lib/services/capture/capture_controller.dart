@@ -350,6 +350,13 @@ class CaptureController extends ChangeNotifier
   /// not in use or is currently healthy.
   LocalSttFailure? _localSetupFailure;
   LocalSttFailure? get localSttFailure => customSttPollingSocket(_socket?.socket)?.localFailure ?? _localSetupFailure;
+
+  /// True when transcription runs on the user's own provider and API key.
+  ///
+  /// Omi's monthly allowance only pays for Omi's own managed service; with a
+  /// bring-your-own key the user is billed by that provider instead, so an
+  /// exhausted plan must not be reported as the reason no transcript appears.
+  bool get usesCustomTranscription => _preferences.customSttConfig.isEnabled;
   Future<void> retryLocalTranscription() async {
     final polling = customSttPollingSocket(_socket?.socket);
     if (polling != null) {
