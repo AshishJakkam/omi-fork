@@ -597,7 +597,10 @@ class TranscriptSocketServiceFactory {
         apiKey: config.apiKey ?? '',
         model:
             config.effectiveModel.isNotEmpty ? config.effectiveModel : 'gemini-2.5-flash-native-audio-preview-12-2025',
-        language: config.effectiveLanguage,
+        // Resolve the language the same way every other provider does. Reading the raw stored
+        // field pinned Gemini to whatever was saved first, so a Telugu or Hindi primary language
+        // still transcribing as English was indistinguishable from a broken socket.
+        language: SttLanguage.resolve(config.provider, saved: config),
         sampleRate: sampleRate,
         transcoder: transcoder,
       );
