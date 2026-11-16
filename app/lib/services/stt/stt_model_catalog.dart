@@ -26,6 +26,7 @@ class SttModelCatalog {
     required this.source,
     this.note,
     this.fetchedAt,
+    this.availableCount,
   });
 
   final List<String> models;
@@ -35,6 +36,14 @@ class SttModelCatalog {
   final String? note;
 
   final DateTime? fetchedAt;
+
+  /// How many models the provider reported in total, before the ones that cannot do this job were
+  /// dropped. The catalogue page lists far more than a live transcriber can use, and hiding that
+  /// difference silently looks like a broken list.
+  final int? availableCount;
+
+  /// Models the provider offers that this picker cannot use.
+  int get hiddenCount => (availableCount ?? models.length) - models.length;
 
   /// Whether asking again could plausibly return something newer.
   bool get canRefresh => source != ModelCatalogSource.network;
@@ -81,14 +90,17 @@ abstract final class SttModelCatalogService {
     if (cached != null) return cached;
 
     try {
-      final models = await _fetch(provider, endpoint, key, client);
-      if (models.isEmpty) {
+      final parsed = await _fetch(provider, endpoint, key, client);
+      if (parsed.usable.isEmpty) {
         return SttModelCatalog(
             models: builtIn, source: ModelCatalogSource.builtIn, note: 'no models returned');
       }
-      unawaited(_writeCache(provider, key, models));
+      unawaited(_writeCache(provider, key, parsed.usable, parsed.total));
       return SttModelCatalog(
-          models: models, source: ModelCatalogSource.network, fetchedAt: DateTime.now());
+          models: parsed.usable,
+          source: ModelCatalogSource.network,
+          fetchedAt: DateTime.now(),
+          availableCount: parsed.total);
     } on _CatalogUnavailable catch (error) {
       // Offline, a rejected key, or a rate limit: keep the built-in list and say so once.
       return SttModelCatalog(models: builtIn, source: ModelCatalogSource.builtIn, note: error.reason);
@@ -121,7 +133,7 @@ abstract final class SttModelCatalogService {
         _ => null,
       };
 
-  static Future<List<String>> _fetch(
+  static Future<({List<String> usable, int total})> _fetch(
     SttProvider provider,
     Uri endpoint,
     String apiKey,
@@ -152,7 +164,7 @@ abstract final class SttModelCatalogService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw _CatalogUnavailable('http ${response.statusCode}');
       }
-      return parse(provider, jsonDecode(response.body));
+      return parseWithCounts(provider, jsonDecode(response.body));
     } on _CatalogUnavailable {
       rethrow;
     } on TimeoutException {
@@ -165,8 +177,13 @@ abstract final class SttModelCatalogService {
   }
 
   /// Extracts model ids from a provider's list response. Visible for testing.
-  static List<String> parse(SttProvider provider, Object? body) {
+  static List<String> parse(SttProvider provider, Object? body) => parseWithCounts(provider, body).usable;
+
+  /// The usable ids plus how many the provider reported in total.
+  static ({List<String> usable, int total}) parseWithCounts(SttProvider provider, Object? body) {
     final ids = <String>[];
+    // Every id the provider reported, before any filter: what the catalogue page shows.
+    final reported = <String>{};
     // A streaming provider needs models that accept the Live socket, not the unary endpoint;
     // filtering both on `generateContent` hid every live model from the live picker.
     final requiredMethod =
@@ -179,6 +196,7 @@ abstract final class SttModelCatalogService {
           if (entry is! Map) continue;
           final name = entry['name'];
           if (name is! String) continue;
+          reported.add(name.replaceFirst('models/', ''));
           final methods = entry['supportedGenerationMethods'];
           if (methods is List && !methods.contains(requiredMethod)) continue;
           ids.add(name.replaceFirst('models/', ''));
@@ -188,7 +206,10 @@ abstract final class SttModelCatalogService {
       final data = body['data'];
       if (data is List) {
         for (final entry in data) {
-          if (entry is Map && entry['id'] is String) ids.add(entry['id'] as String);
+          if (entry is Map && entry['id'] is String) {
+            reported.add(entry['id'] as String);
+            ids.add(entry['id'] as String);
+          }
         }
       }
       // Deepgram also reports its speech models separately.
@@ -210,7 +231,8 @@ abstract final class SttModelCatalogService {
       if (_neverTranscribe.any(lower.contains)) continue;
       unique.add(trimmed);
     }
-    return unique.toList()..sort();
+    final sorted = unique.toList()..sort();
+    return (usable: sorted, total: reported.length);
   }
 
   static SttModelCatalog? _readCache(SttProvider provider, String apiKey) {
@@ -224,17 +246,28 @@ abstract final class SttModelCatalogService {
       final models = (decoded['models'] as List?)?.whereType<String>().toList() ?? const <String>[];
       if (at == null || models.isEmpty) return null;
       if (DateTime.now().difference(at) > cacheTtl) return null;
-      return SttModelCatalog(models: models, source: ModelCatalogSource.cache, fetchedAt: at);
+      return SttModelCatalog(
+        models: models,
+        source: ModelCatalogSource.cache,
+        fetchedAt: at,
+        availableCount: decoded['total'] is int ? decoded['total'] as int : models.length,
+      );
     } catch (_) {
       return null;
     }
   }
 
-  static Future<void> _writeCache(SttProvider provider, String apiKey, List<String> models) async {
+  static Future<void> _writeCache(
+      SttProvider provider, String apiKey, List<String> models, int total) async {
     try {
       await SharedPreferencesUtil().saveString(
         'sttModels.${provider.name}',
-        jsonEncode({'fp': fingerprint(apiKey), 'at': DateTime.now().toIso8601String(), 'models': models}),
+        jsonEncode({
+          'fp': fingerprint(apiKey),
+          'at': DateTime.now().toIso8601String(),
+          'models': models,
+          'total': total,
+        }),
       );
     } catch (_) {
       // A cache that cannot be written only costs a refetch next time.

@@ -1207,16 +1207,23 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     return SttUsageTracker.describe(usage, _currentModel);
   }
 
-  /// One quiet line: which list is showing and, when a refresh failed, why.
+  /// One quiet line: which list is showing, how much of the catalogue it can use, and why a
+  /// refresh failed.
   String _catalogNote(SttModelCatalog? catalog) {
     if (catalog == null) return 'Using the built-in list while models load.';
     final base = switch (catalog.source) {
       ModelCatalogSource.network => 'Models from ${_currentConfig.displayName}.',
-      ModelCatalogSource.cache => 'Models from ${_currentConfig.displayName}, cached '
-          '${_ageLabel(catalog.fetchedAt)}.',
+      ModelCatalogSource.cache =>
+        'Models from ${_currentConfig.displayName}, cached ${_ageLabel(catalog.fetchedAt)}.',
       ModelCatalogSource.builtIn => 'Showing built-in models.',
     };
-    return catalog.note == null ? base : '$base ${catalog.note} — retrying later.';
+    final hidden = catalog.hiddenCount;
+    final coverage = hidden > 0
+        ? ' ${catalog.models.length} of ${catalog.availableCount} models can do this job; '
+            '$hidden others (text-to-speech, image, embeddings) cannot.'
+        : '';
+    final failure = catalog.note == null ? '' : ' ${catalog.note} — retrying later.';
+    return '$base$coverage$failure';
   }
 
   String _ageLabel(DateTime? at) {

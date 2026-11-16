@@ -53,6 +53,23 @@ void main() {
       expect(models, ['gpt-4o-transcribe', 'whisper-1']);
     });
 
+    test('the total is kept so the UI can say how much of the catalogue it cannot use', () {
+      final parsed = SttModelCatalogService.parseWithCounts(SttProvider.geminiLive, {
+        'models': [
+          {'name': 'models/gemini-3.5-transcribe-live', 'supportedGenerationMethods': ['bidiGenerateContent']},
+          {'name': 'models/gemini-3.8-live', 'supportedGenerationMethods': ['bidiGenerateContent']},
+          {'name': 'models/gemini-3.8-flash-lite-tts', 'supportedGenerationMethods': ['generateContent']},
+          {'name': 'models/gemini-3.1-flash-image', 'supportedGenerationMethods': ['generateContent']},
+          {'name': 'models/text-embedding-005', 'supportedGenerationMethods': ['embedContent']},
+        ],
+      });
+      expect(parsed.usable, ['gemini-3.5-transcribe-live', 'gemini-3.8-live']);
+      expect(parsed.total, 5);
+      final catalog = SttModelCatalog(
+          models: parsed.usable, source: ModelCatalogSource.network, availableCount: parsed.total);
+      expect(catalog.hiddenCount, 3);
+    });
+
     test('a body with no recognisable list yields an empty catalogue', () {
       expect(SttModelCatalogService.parse(SttProvider.openai, {'unexpected': true}), isEmpty);
       expect(SttModelCatalogService.parse(SttProvider.openai, null), isEmpty);
