@@ -1,5 +1,21 @@
 part of 'capture_controller.dart';
 
+/// Whether a captured phone-mic frame should be written to the transcription socket.
+///
+/// Local-only retention (`keepAudioLocal`) exists so audio that would otherwise
+/// be uploaded to Omi stays on the phone. It must not silence a provider the user
+/// configured with their own key: with an exhausted Omi plan and a valid Gemini
+/// key, every frame was journalled to the WAL and none was ever sent, so the live
+/// transcript stayed empty while the recording looked healthy.
+@visibleForTesting
+bool shouldFeedTranscriptionSocket({
+  required bool socketConnected,
+  required bool streamsToCustomCloud,
+  required bool keepAudioLocal,
+  required bool feedsOnDeviceSocket,
+}) =>
+    socketConnected && (streamsToCustomCloud || !keepAudioLocal || feedsOnDeviceSocket);
+
 /// Pendant uplink effects share the existing admission and session owners.
 extension _CaptureUplinkPolicy on CaptureController {
   /// Reconcile both the staged BLE activation and its committed ownership.

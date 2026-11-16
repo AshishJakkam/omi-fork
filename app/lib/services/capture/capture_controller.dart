@@ -357,6 +357,19 @@ class CaptureController extends ChangeNotifier
   /// bring-your-own key the user is billed by that provider instead, so an
   /// exhausted plan must not be reported as the reason no transcript appears.
   bool get usesCustomTranscription => _preferences.customSttConfig.isEnabled;
+
+  /// True when the configured provider streams to a cloud endpoint on the
+  /// user's own key.
+  ///
+  /// Keeping audio on the phone protects it from Omi's servers; it must not also
+  /// withhold the uplink to a provider the user chose and pays for directly.
+  /// Without this, an exhausted Omi plan silently muted a working Gemini key:
+  /// frames were journalled to the WAL and never written to the socket.
+  bool get _streamsToCustomCloud {
+    final config = _preferences.customSttConfig;
+    if (!config.isEnabled) return false;
+    return config.provider != SttProvider.onDeviceWhisper && config.provider != SttProvider.localWhisper;
+  }
   Future<void> retryLocalTranscription() async {
     final polling = customSttPollingSocket(_socket?.socket);
     if (polling != null) {
@@ -607,8 +620,12 @@ class CaptureController extends ChangeNotifier
         final frames = _activeSource?.processBytes(bytes) ?? [];
         for (final frame in frames) {
           final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
-          if (_socket?.state == SocketServiceState.connected &&
-              (!OnDeviceTranscriptionController.instance.shouldKeepAudioLocal || _feedsOnDeviceSocket)) {
+          if (shouldFeedTranscriptionSocket(
+            socketConnected: _socket?.state == SocketServiceState.connected,
+            streamsToCustomCloud: _streamsToCustomCloud,
+            keepAudioLocal: OnDeviceTranscriptionController.instance.shouldKeepAudioLocal,
+            feedsOnDeviceSocket: _feedsOnDeviceSocket,
+          )) {
             if (positioned.captureRoot != null) {
               _socket?.sendEvidenceFrame(positioned);
             } else {
@@ -3100,8 +3117,12 @@ class CaptureController extends ChangeNotifier
           for (final frame in frames) {
             final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
 
-            if (_socket?.state == SocketServiceState.connected &&
-                (!OnDeviceTranscriptionController.instance.shouldKeepAudioLocal || _feedsOnDeviceSocket)) {
+            if (shouldFeedTranscriptionSocket(
+              socketConnected: _socket?.state == SocketServiceState.connected,
+              streamsToCustomCloud: _streamsToCustomCloud,
+              keepAudioLocal: OnDeviceTranscriptionController.instance.shouldKeepAudioLocal,
+              feedsOnDeviceSocket: _feedsOnDeviceSocket,
+            )) {
               if (positioned.captureRoot != null) {
                 _socket?.sendEvidenceFrame(positioned);
               } else {
