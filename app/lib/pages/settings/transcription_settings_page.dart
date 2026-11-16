@@ -1073,7 +1073,18 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [_buildApiKeyInput(), const SizedBox(height: OmiSpacing.lg), _buildLanguageSelector()],
+      children: [
+        _buildApiKeyInput(),
+        // Cloud providers render no model field at all, so the model in use was invisible and
+        // unchangeable: a Gemini key silently ran whatever the default was, and the only way to
+        // pick a cheaper or better model was to edit stored preferences by hand.
+        if (_currentConfig.supportedModels.isNotEmpty) ...[
+          const SizedBox(height: OmiSpacing.lg),
+          _buildModelSelector(),
+        ],
+        const SizedBox(height: OmiSpacing.lg),
+        _buildLanguageSelector(),
+      ],
     );
   }
 

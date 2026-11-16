@@ -132,7 +132,7 @@ dependencies:
   whisper_flutter_new:
     git:
       url: https://github.com/AshishJakkam/whisper_flutter_new.git
-      ref: 1418bc58c405902d8438d8f347ea20d8a16c22d5
+      ref: 89e6d3ddd22b9446a5895ba7e7295dfc63ad2f0b
   disk_space_2: ^1.0.11
   vector_math: ^2.2.0
   marionette_flutter: ^0.3.0

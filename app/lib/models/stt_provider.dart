@@ -314,9 +314,11 @@ class SttProviderConfig {
       requiresApiKey: true,
       requestType: SttRequestType.jsonBase64,
       supportedLanguages: SttLanguages.geminiSupported,
-      supportedModels: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+      // Cheapest first. Flash-Lite is the economical choice for transcription; Pro is the most
+      // accurate and the most expensive, and the ordering makes that visible in the picker.
+      supportedModels: ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'],
       defaultLanguage: 'en',
-      defaultModel: 'gemini-2.0-flash',
+      defaultModel: 'gemini-2.5-flash',
       responseSchema: SttResponseSchema.gemini,
       apiKeyUrl: 'https://aistudio.google.com/apikey',
       docsUrl: 'https://ai.google.dev/gemini-api/docs/models/gemini',
@@ -500,7 +502,7 @@ class SttProviderConfig {
         break;
 
       case SttProvider.gemini:
-        final modelName = mdl.isNotEmpty ? mdl : 'gemini-2.0-flash';
+        final modelName = mdl.isNotEmpty ? mdl : 'gemini-2.5-flash';
         config['url'] =
             'https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=${apiKey ?? ''}';
         config['headers'] = {'Content-Type': 'application/json'};
