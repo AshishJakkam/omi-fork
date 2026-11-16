@@ -7,9 +7,11 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:omi/models/stt_response_schema.dart';
+import 'package:omi/models/stt_provider.dart';
 import 'package:omi/models/stt_result.dart';
 import 'package:omi/services/custom_stt_log_service.dart';
 import 'package:omi/services/sockets/pure_socket.dart';
+import 'package:omi/services/stt/stt_usage_tracker.dart';
 import 'package:omi/utils/audio/audio_transcoder.dart';
 import 'package:omi/utils/debug_log_manager.dart';
 import 'package:omi/utils/logger.dart';
@@ -375,8 +377,11 @@ class GeminiStreamingSttSocket implements IPureSocket {
     try {
       _channel!.sink.add(jsonEncode(realtimeInput));
       _timeline.addPcm(pcmData.length);
+      // Audio has left the device for a metered provider: count it so the page can show the spend.
+      unawaited(SttUsageTracker.recordAudio(SttProvider.geminiLive, pcmData.length, sampleRate: sampleRate));
     } catch (e) {
       CustomSttLogService.instance.error('GeminiStreaming', 'Send error: $e');
+      unawaited(SttUsageTracker.recordError(SttProvider.geminiLive, e.toString()));
     }
   }
 

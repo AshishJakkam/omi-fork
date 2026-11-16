@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:omi/models/stt_provider.dart';
 import 'package:omi/models/stt_result.dart';
 import 'package:omi/services/capture/local_stt_custody.dart';
 import 'package:omi/services/on_device/on_device_file_log.dart';
 import 'package:omi/services/sockets/local_stt_failure.dart';
 import 'package:omi/services/custom_stt_log_service.dart';
 import 'package:omi/services/sockets/pure_socket.dart';
+import 'package:omi/services/stt/stt_usage_tracker.dart';
 import 'package:omi/utils/audio/audio_transcoder.dart';
 import 'package:omi/utils/debug_log_manager.dart';
 import 'package:omi/utils/logger.dart';
@@ -25,12 +27,16 @@ class AudioPollingConfig {
   // bounded during a long outage instead of buffering forever.
   final int maxBufferBytes;
 
+  /// Sample rate of the PCM handed to the provider, for audio accounting.
+  final int sampleRate;
+
   const AudioPollingConfig({
     this.bufferDuration = const Duration(seconds: 3),
     this.minBufferSizeBytes = 8000,
     this.serviceId,
     this.transcoder,
     this.maxBufferBytes = 19200000,
+    this.sampleRate = 16000,
   });
 }
 
@@ -136,6 +142,19 @@ class PurePollingSocket implements IPureSocket {
 
   int get _totalBufferBytes => _audioFrames.fold<int>(0, (sum, frame) => sum + frame.length);
 
+  /// The provider behind a socket's [AudioPollingConfig.serviceId], when it is a metered one.
+  ///
+  /// Nothing leaves the phone for on-device or local whisper, so those are not counted.
+  static SttProvider? _providerForService(String serviceId) {
+    for (final provider in SttProvider.values) {
+      if (provider.name != serviceId) continue;
+      if (provider == SttProvider.onDeviceWhisper) return null;
+      if (provider == SttProvider.localWhisper) return null;
+      return provider;
+    }
+    return null;
+  }
+
   Future<void> _flushBuffer() async {
     if (_audioFrames.isEmpty || _status != PurePollingStatus.connected) {
       return;
@@ -208,6 +227,11 @@ class PurePollingSocket implements IPureSocket {
           'segments=${result?.segments.length ?? 0}'));
       // Tells the batch runner to step aside while the live lane is using the model.
       LocalSttCustody.lastLiveWindowAt = DateTime.now();
+      // A metered provider is paid for the audio it was handed, not for the text it returned.
+      final metered = _providerForService(serviceId);
+      if (metered != null) {
+        unawaited(SttUsageTracker.recordAudio(metered, audioData.length, sampleRate: config.sampleRate));
+      }
       if (result != null && result.isNotEmpty) {
         if (result.segments.isNotEmpty) {
           _audioOffsetSeconds = result.audioEndSeconds ?? result.segments.last.end;

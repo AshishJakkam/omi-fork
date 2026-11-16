@@ -37,6 +37,7 @@ import 'package:omi/providers/usage_provider.dart';
 import 'package:omi/services/services.dart';
 import 'package:omi/services/sockets/transcription_service.dart';
 import 'package:omi/services/stt/stt_model_catalog.dart';
+import 'package:omi/services/stt/stt_usage_tracker.dart';
 import 'package:omi/ui/ui.dart';
 import 'package:omi/utils/l10n_extensions.dart';
 import 'package:omi/utils/logger.dart';
@@ -1191,8 +1192,19 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
         ),
         const SizedBox(height: OmiSpacing.xs),
         TranscriptionHelpText(_catalogNote(catalog)),
+        if (_usageNote() case final usage?) ...[
+          const SizedBox(height: OmiSpacing.xs),
+          TranscriptionHelpText(usage),
+        ],
       ],
     );
+  }
+
+  /// What this key has cost and the last thing the provider said, or null when there is nothing
+  /// to report. A bring-your-own-key app hands over someone else's meter, so it has to show it.
+  String? _usageNote() {
+    final usage = SttUsageTracker.snapshot(_selectedProvider);
+    return SttUsageTracker.describe(usage, _currentModel);
   }
 
   /// One quiet line: which list is showing and, when a refresh failed, why.
