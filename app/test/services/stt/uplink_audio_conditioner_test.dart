@@ -74,6 +74,52 @@ void main() {
       expect(out.every((s) => s.abs() < 1e-3), isTrue);
     });
 
+    test('does not pump steady room noise up to the target level', () {
+      final conditioner = UplinkAudioConditioner(sampleRate: 16000);
+      final rng = math.Random(7);
+      final hiss = [for (var i = 0; i < 16000 * 2; i++) (rng.nextDouble() * 2 - 1) * 0.004];
+      final before = rms(hiss.sublist(8000));
+      final after = rms(unpack(conditioner.process(pcm(hiss))).sublist(8000));
+      // Speech-free hiss must not be lifted toward targetRms (0.08).
+      expect(after, lessThan(before * 2));
+    });
+
+    test('moves energy into the speech band the cloud endpoint needs', () {
+      final conditioner = UplinkAudioConditioner(sampleRate: 16000);
+      // Muffled, quiet speech: a 200 Hz fundamental plus a formant, buried in rumble.
+      List<double> build() => [
+            for (var i = 0; i < 16000; i++)
+              0.01 *
+                      math.sin(2 * math.pi * 200 * i / 16000) *
+                      (0.5 + 0.5 * math.sin(2 * math.pi * 4 * i / 16000)) +
+                  0.01 *
+                      math.sin(2 * math.pi * 1200 * i / 16000) *
+                      (0.5 + 0.5 * math.sin(2 * math.pi * 4 * i / 16000)) +
+                  0.05 * math.sin(2 * math.pi * 45 * i / 16000),
+          ];
+
+      /// Energy above ~300 Hz divided by energy below it.
+      double speechOverRumble(List<double> xs) {
+        // One-pole high-pass at 300 Hz; subtracting it leaves the rumble.
+        const a = 1 / (1 + 2 * math.pi * 300 / 16000);
+        var prevIn = 0.0, prevOut = 0.0;
+        final high = <double>[];
+        final low = <double>[];
+        for (final x in xs) {
+          final y = a * (prevOut + x - prevIn);
+          prevIn = x;
+          prevOut = y;
+          high.add(y);
+          low.add(x - y);
+        }
+        return rms(high) / rms(low);
+      }
+
+      final before = speechOverRumble(build());
+      final after = speechOverRumble(unpack(conditioner.process(pcm(build()))));
+      expect(after, greaterThan(before * 1.2));
+    });
+
     test('never exceeds full scale on loud input', () {
       final conditioner = UplinkAudioConditioner(sampleRate: 16000);
       final loud = [for (var i = 0; i < 16000; i++) 0.99 * math.sin(2 * math.pi * 200 * i / 16000)];

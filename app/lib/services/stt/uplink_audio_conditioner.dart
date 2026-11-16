@@ -25,6 +25,7 @@ class UplinkAudioConditioner {
     this.cutoffHz = 100,
     this.targetRms = 0.08,
     this.maxGain = 20,
+    this.speechToNoiseRatio = 2.0,
   })  : assert(sampleRate > 0),
         _decay = 1.0 / (1.0 + 2 * math.pi * cutoffHz / sampleRate);
 
@@ -40,6 +41,10 @@ class UplinkAudioConditioner {
   /// Upper bound on the lift applied to very quiet input.
   final double maxGain;
 
+  /// How far a block must stand above the tracked noise floor before it is
+  /// treated as speech and given gain.
+  final double speechToNoiseRatio;
+
   /// One-pole high-pass coefficient.
   final double _decay;
 
@@ -50,6 +55,9 @@ class UplinkAudioConditioner {
   double _gain = 1;
   double _blockSumSquares = 0;
   int _blockSamples = 0;
+
+  /// Slow estimate of the room's noise level, used to tell speech from hiss.
+  double? _noiseFloor;
 
   /// Samples per gain update: 10 ms, long enough to measure, short enough to
   /// track the syllable gaps speech is full of.
@@ -93,6 +101,24 @@ class UplinkAudioConditioner {
     // A silent room measures near zero; lifting that would manufacture a signal
     // the model could latch onto, so hold the current gain instead.
     if (rms < 1e-4) return;
+
+    // Track the quietest recent block as the noise floor: fall fast, rise slowly,
+    // so a pause between words is measured as noise rather than resetting it.
+    final floor = _noiseFloor;
+    if (floor == null || rms < floor) {
+      _noiseFloor = floor == null ? rms : floor + (rms - floor) * 0.5;
+    } else {
+      _noiseFloor = floor + (rms - floor) * 0.002;
+    }
+
+    // Only content that stands clear of the floor earns gain. Otherwise hiss is
+    // pumped up to the target and the model is handed loud noise all session.
+    final hasSpeech = rms > _noiseFloor! * speechToNoiseRatio;
+    if (!hasSpeech) {
+      _gain += (1.0 - _gain) * 0.08;
+      return;
+    }
+
     final desired = (targetRms / rms).clamp(1.0, maxGain);
     // Attack quickly enough to reach working level inside the first word,
     // release slowly enough to avoid pumping between syllables.
