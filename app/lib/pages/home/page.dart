@@ -28,6 +28,7 @@ import 'package:omi/pages/activity/activity_bell_button.dart';
 import 'package:omi/services/onboarding_sync_runtime.dart';
 import 'package:omi/backend/http/api/users.dart';
 import 'package:omi/backend/preferences.dart';
+import 'package:omi/services/stt/cloud_batch_transcriber.dart';
 import 'package:omi/providers/home_feed_provider.dart';
 import 'package:omi/backend/schema/bt_device/bt_device.dart';
 import 'package:omi/backend/schema/geolocation.dart';
@@ -797,6 +798,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver, Ticker
           _onDeviceRunner = OnDeviceRunner(
             sync: sync,
             controller: onDevice,
+            // Serve the backlog with the provider the reader chose, so recorded audio and live
+            // audio stop being transcribed by different engines.
+            transcribeChunk: cloudBacklogTranscriber(SharedPreferencesUtil().customSttConfig),
             publish: (row) {
               if (!mounted) return;
               context.read<ConversationProvider>().upsertConversation(row);

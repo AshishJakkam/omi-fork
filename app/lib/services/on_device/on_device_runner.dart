@@ -164,7 +164,9 @@ class OnDeviceRunner with WidgetsBindingObserver {
         }
         throw PreparedContinuationDisabled();
       }
-      final hasModel = controller.model.status.isInstalled;
+      // A cloud transcriber is an engine in its own right: requiring a downloaded on-device model
+      // would leave a bring-your-own-key reader with no way to drain the backlog at all.
+      final hasModel = controller.model.status.isInstalled || transcribeChunk != null;
       final resumePrepared = !hasModel && await ClientRefactorFlags.chunkUploads();
       if (!hasModel && !(resumePrepared && pending.any((w) => w.onDevicePreparedUpload != null))) return;
       final decision =

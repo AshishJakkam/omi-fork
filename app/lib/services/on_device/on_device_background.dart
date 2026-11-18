@@ -6,6 +6,7 @@ import 'package:omi/backend/preferences.dart';
 import 'package:omi/backend/schema/conversation.dart';
 import 'package:omi/services/on_device/on_device_runner.dart';
 import 'package:omi/services/on_device/on_device_transcription_controller.dart';
+import 'package:omi/services/stt/cloud_batch_transcriber.dart';
 import 'package:omi/services/wals/local_wal_sync.dart';
 import 'package:omi/services/wals/wal.dart';
 import 'package:omi/services/wals/wal_interfaces.dart';
@@ -42,7 +43,14 @@ Future<void> runOnDeviceBackground({required Future<void> Function() initialize}
     // This worker is Android-only; Apple's summary capability has no channel here.
     await controller.ensureLoaded();
     await controller.model.refresh();
-    runner = OnDeviceRunner(sync: sync, controller: controller, publish: (_) {});
+    runner = OnDeviceRunner(
+      sync: sync,
+      controller: controller,
+      // Same provider the foreground reader chose, so the worker does not fall back to a
+      // different engine for the same audio.
+      transcribeChunk: cloudBacklogTranscriber(prefs.customSttConfig),
+      publish: (_) {},
+    );
     channel.setMethodCallHandler((call) async {
       if (call.method == 'backgroundExpired') await runner?.cancel();
     });
