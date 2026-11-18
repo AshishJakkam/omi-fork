@@ -140,6 +140,19 @@ class GeminiStreamingSttSocket implements IPureSocket {
   int _bufferedBytes = 0;
   static const int _minBytesBeforeSend = 16000;
 
+  // Uplink continuity: how much of the wall-clock session the provider actually heard.
+  //
+  // A gap here is audio the model never received, and feeding a stuttering stream to the Live
+  // endpoint chops words ("Ac-counting" came back as "counting" once 100 ms was missing every
+  // 300 ms). Without this, a lossy capture path and a bad model look identical from the outside.
+  static const Duration _gapThreshold = Duration(milliseconds: 250);
+  DateTime? _firstSendAt;
+  DateTime? _lastSendAt;
+  double _audioSecondsSent = 0;
+  int _gapCount = 0;
+  double _gapSeconds = 0;
+  double _longestGapSeconds = 0;
+
   GeminiStreamingSttSocket({
     required this.apiKey,
     this.model = 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -324,6 +337,47 @@ class GeminiStreamingSttSocket implements IPureSocket {
     }
   }
 
+  /// Records one successful provider write and any silence in the stream around it.
+  void _recordUplink(int bytes) {
+    final now = DateTime.now();
+    if (_firstSendAt == null) {
+      _firstSendAt = now;
+    } else {
+      final gap = now.difference(_lastSendAt!);
+      if (gap > _gapThreshold) {
+        final seconds = gap.inMilliseconds / 1000.0;
+        _gapCount++;
+        _gapSeconds += seconds;
+        if (seconds > _longestGapSeconds) _longestGapSeconds = seconds;
+      }
+    }
+    _lastSendAt = now;
+    _audioSecondsSent += bytes / (sampleRate * 2);
+  }
+
+  /// States how much of the session the provider heard, so a lossy capture path is visible.
+  void _logUplinkCoverage() {
+    final start = _firstSendAt;
+    if (start == null) return;
+    final wall = DateTime.now().difference(start).inMilliseconds / 1000.0;
+    final coverage = wall <= 0 ? 0.0 : (_audioSecondsSent / wall * 100);
+    CustomSttLogService.instance.info(
+      'GeminiStreaming',
+      'uplink ${_audioSecondsSent.toStringAsFixed(1)}s audio in ${wall.toStringAsFixed(1)}s '
+      '(${coverage.toStringAsFixed(0)}% coverage), $_gapCount gap(s) totalling '
+      '${_gapSeconds.toStringAsFixed(1)}s, longest ${_longestGapSeconds.toStringAsFixed(1)}s',
+    );
+    DebugLogManager.logEvent('gemini_uplink_coverage', {
+      'model': model,
+      'audio_seconds': double.parse(_audioSecondsSent.toStringAsFixed(1)),
+      'wall_seconds': double.parse(wall.toStringAsFixed(1)),
+      'coverage_percent': double.parse(coverage.toStringAsFixed(0)),
+      'gap_count': _gapCount,
+      'gap_seconds': double.parse(_gapSeconds.toStringAsFixed(1)),
+      'longest_gap_seconds': double.parse(_longestGapSeconds.toStringAsFixed(1)),
+    });
+  }
+
   @override
   void send(dynamic message) {
     if (_status != PureSocketStatus.connected || _channel == null || !_setupSent) {
@@ -381,6 +435,7 @@ class GeminiStreamingSttSocket implements IPureSocket {
     try {
       _channel!.sink.add(jsonEncode(realtimeInput));
       _timeline.addPcm(pcmData.length);
+      _recordUplink(pcmData.length);
     } catch (e) {
       CustomSttLogService.instance.error('GeminiStreaming', 'Send error: $e');
     }
@@ -430,6 +485,7 @@ class GeminiStreamingSttSocket implements IPureSocket {
 
     _channel?.sink.close();
     _status = PureSocketStatus.disconnected;
+    _logUplinkCoverage();
     CustomSttLogService.instance.info('GeminiStreaming', 'Disconnected');
     onClosed();
   }
