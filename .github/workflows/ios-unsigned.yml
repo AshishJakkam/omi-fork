@@ -1,0 +1,246 @@
+name: iOS unsigned ipa
+
+# Builds an UNSIGNED .ipa for the fork on a GitHub-hosted macOS runner.
+# Sideloadly re-signs it on Windows with a free Apple ID, so this workflow needs
+# no certificates, no provisioning profiles, no App Store Connect key and no
+# Apple Developer membership.
+#
+# Why GitHub Actions instead of Codemagic: the repo is already here, so this runs
+# with zero account setup. Private repos include macOS minutes on the free plan
+# (billed at 10x, so roughly 200 effective minutes a month; this build needs ~20).
+#
+# Identity, all agreeing with lib/env/environment_profile.dart and
+# ios/Flutter/prodRelease.xcconfig (guarded by fork_identity_consistency_test):
+#   bundle id         com.omi.fork          - App Store Omi keeps working
+#   callback scheme   omifork://auth/callback
+#   app group         none (empty entitlements, free-tier safe)
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Backend the build talks to. Keep the trailing slash.'
+        required: false
+        default: 'https://api.omi.me/'
+      app_profile:
+        description: 'OMI_APP_PROFILE. Blank uses the flavor default; use self_host for your own backend.'
+        required: false
+        default: ''
+      force_on_device:
+        description: 'Compile the on-device override (required for a self_host build).'
+        type: boolean
+        required: false
+        default: true
+      include_watch:
+        description: 'Keep the watch app and other nested bundles. Requires a PAID Apple team.'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-unsigned.yml'
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | tail -5
+          sw_vers
+
+      - name: Install Opus
+        run: |
+          # opus_flutter_ios links the system libopus.
+          brew install opus || brew upgrade opus
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.5'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Set up app .env
+        run: |
+          set -e
+          if [ ! -f .env ]; then cp .env.template .env; fi
+          set_env() {
+            key="$1"; value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i '' "s|^${key}=.*|${key}=${value}|" .env
+            else
+              echo "${key}=${value}" >> .env
+            fi
+          }
+          # USE_WEB_AUTH is compile-time: envied bakes .env into lib/env/*.g.dart
+          # during build_runner, so it must be set before that step. Without it the
+          # app uses the native Google SDK, whose client is bound to Omi's bundle
+          # id, and sign-in fails for a fork.
+          set_env API_BASE_URL "${{ inputs.api_base_url || 'https://api.omi.me/' }}"
+          set_env USE_WEB_AUTH "true"
+          echo '--- .env (secrets redacted) ---'
+          sed -E 's/(KEY|SECRET)=.*/\1=<redacted>/' .env
+
+      - name: Install committed Firebase client config
+        run: |
+          # One script installs every gitignored Firebase artefact a build needs:
+          #   lib/firebase_options_{prod,dev}.dart
+          #   android/app/src/{prod,dev}/google-services.json
+          #   ios/Config/{Prod,Dev}/GoogleService-Info.plist
+          # The last of those matters because an Xcode "Run Script" phase copies
+          # ios/Config/Prod/GoogleService-Info.plist into Runner/ for Release-prod,
+          # and fails the build if it is absent. It also validates each file names
+          # the expected project, so a wrong config fails loudly instead of
+          # producing a misconfigured app.
+          bash scripts/install_release_firebase_config.sh
+
+      - name: Generate iOS custom config
+        run: |
+          set -e
+          # Writes ios/Flutter/Custom.xcconfig. prodRelease.xcconfig includes it and
+          # then overrides the bundle id and callback scheme, so our identity wins.
+          #
+          # Read the plist from ios/Config/Prod, not ios/Runner: the install script
+          # populates Config/, while Runner/ is only filled in later by the "Copy
+          # Google Plist file" build phase. Pointing at the wrong one made the
+          # generator silently emit an empty GOOGLE_REVERSE_CLIENT_ID.
+          bash scripts/generate_ios_custom_config.sh ios/Config/Prod/GoogleService-Info.plist ios/Flutter/
+          echo '--- Custom.xcconfig ---'
+          cat ios/Flutter/Custom.xcconfig
+          # The generator writes the value unquoted, because the shell consumes the
+          # quotes in its own `echo KEY="$(...)"`: match on the value itself.
+          grep -q '^GOOGLE_REVERSE_CLIENT_ID=com[.]googleusercontent[.]apps' ios/Flutter/Custom.xcconfig || {
+            echo "Custom.xcconfig has no reversed client id; the plist read failed" >&2
+            exit 1
+          }
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Run build_runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Pod install
+        run: |
+          set -e
+          cd ios
+          # TwilioVoice ships via Twilio's own CDN, which intermittently returns
+          # 504 Gateway Timeout. That is outside our control, so retry rather than
+          # fail a 20 minute build over a transient upstream hiccup.
+          for attempt in 1 2 3 4; do
+            echo "=== pod install attempt $attempt ==="
+            if pod install --repo-update; then
+              echo "pod install succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          echo "pod install failed after 4 attempts" >&2
+          exit 1
+
+      - name: Use free-tier entitlements
+        run: |
+          # Production entitlements ask for App Groups, Push, HealthKit, Hotspot,
+          # Wi-Fi info and Associated Domains. A free Apple ID cannot grant any of
+          # them. Background audio and on-device transcription need no entitlement,
+          # so ask for nothing and let any profile satisfy the build.
+          cp ios/Runner/RunnerRelease-fork.entitlements ios/Runner/RunnerRelease-prod.entitlements
+          cat ios/Runner/RunnerRelease-prod.entitlements
+
+      - name: Build (no codesign)
+        run: |
+          set -e
+          # OMI_ON_DEVICE_OVERFLOW_FORCE forces OnDeviceOverflowGate open. Without it the
+          # feature reads the PostHog flag `mobile-on-device-overflow`, which defaults off and
+          # fails closed; a fork signed with its own bundle id has no analytics identity to read
+          # it from, so the gate stays shut. Then the backlog has no working exit at all: Sync
+          # only ever uploads for cloud transcription (and is refused at 0 minutes), while the
+          # local runner stays inactive, so recordings sit "Waiting to sync" forever.
+          DEFINES=""
+          # Empty on push events, so the override defaults on and existing builds are unchanged.
+          if [ "${{ inputs.force_on_device }}" != "false" ]; then
+            DEFINES="--dart-define=OMI_ON_DEVICE_OVERFLOW_FORCE=true"
+          fi
+          # OMI_APP_PROFILE selects the trust plane at compile time (String.fromEnvironment).
+          # Blank keeps the flavor default, so an ordinary push build is unchanged.
+          # Validate here: AppEnvironmentProfile parses this at startup and renders a startup failure
+          # screen on an unknown value, so a typo like "prod" produces an app that installs and cannot
+          # open. Failing the build is far cheaper than finding that out on a phone.
+          if [ -n "${{ inputs.app_profile }}" ]; then
+            case "${{ inputs.app_profile }}" in
+              local_dev|mobile_beta|production|self_host) ;;
+              *) echo "::error::app_profile must be one of local_dev, mobile_beta, production, self_host (got '${{ inputs.app_profile }}')"; exit 1 ;;
+            esac
+            DEFINES="$DEFINES --dart-define=OMI_APP_PROFILE=${{ inputs.app_profile }}"
+          fi
+          echo "defines: $DEFINES"
+          flutter build ios --release --no-codesign --flavor prod $DEFINES
+          ls -la build/ios/iphoneos/
+
+      - name: Package unsigned ipa
+        run: |
+          set -e
+          cd build/ios/iphoneos
+          APP=Runner.app
+
+          echo "--- nested bundles before strip ---"
+          ls -la "$APP/Watch" 2>/dev/null || echo "(no Watch)"
+          ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns)"
+
+          # Every nested bundle needs its own App ID and its own signature, and a free team
+          # only gets 10 new App IDs a week. Strip them so the ipa is a single flat app that
+          # Sideloadly signs in one step.
+          #
+          # include_watch keeps them: a watchOS companion needs com.omi.fork.watchkitapp
+          # plus its extension signed separately, which a Personal Team usually cannot do at
+          # all. Use it only with a paid Apple Developer account, where watch installs work.
+          if [ "${{ inputs.include_watch }}" = "true" ]; then
+            echo "--- keeping nested bundles (include_watch=true) ---"
+            ls -la "$APP/Watch"
+            find "$APP" -maxdepth 3 -name '*.appex' -type d | sed 's/^/    appex: /'
+          else
+            rm -rf "$APP/PlugIns" "$APP/Watch" "$APP/com.apple.WatchPlaceholder"
+            find "$APP" -maxdepth 2 -name '*.appex' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "--- after strip ---"
+            ls -la "$APP/Watch" 2>/dev/null || echo "(no Watch - free-tier build)"
+            ls -la "$APP/PlugIns" 2>/dev/null || echo "(no PlugIns - free-tier build)"
+          fi
+
+          echo "Bundle id:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          echo "Display name:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist" || true
+          echo "URL schemes:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$APP/Info.plist" | grep -A2 -i scheme || true
+
+          rm -rf Payload Fork.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Fork.ipa Payload
+          ls -lh Fork.ipa
+
+      - name: Upload ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-ipa
+          path: app/build/ios/iphoneos/Fork.ipa
+          if-no-files-found: error
+          retention-days: 14
