@@ -5918,6 +5918,16 @@ class AppLocalizationsEt extends AppLocalizations {
   String get modelLabel => 'Mudel';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'See mudel on suur ja võib põhjustada rakenduse krahhi või väga aeglase töö mobiilseadmetes.\n\nSoovitatav on small või base.';
 

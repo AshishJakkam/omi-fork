@@ -5928,6 +5928,16 @@ class AppLocalizationsVi extends AppLocalizations {
   String get modelLabel => 'Mô hình';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'Mô hình này lớn và có thể khiến ứng dụng bị treo hoặc chạy rất chậm trên thiết bị di động.\n\nKhuyến nghị sử dụng small hoặc base.';
 

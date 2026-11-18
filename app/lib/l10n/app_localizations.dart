@@ -11229,6 +11229,24 @@ abstract class AppLocalizations {
   /// **'Model'**
   String get modelLabel;
 
+  /// Model used while the transcription screen is open and audio streams in
+  ///
+  /// In en, this message translates to:
+  /// **'Live model'**
+  String get liveModelLabel;
+
+  /// Model used for audio that was already recorded and is transcribed later
+  ///
+  /// In en, this message translates to:
+  /// **'Backlog model'**
+  String get backlogModelLabel;
+
+  /// Explains why the backlog model can differ from the live model
+  ///
+  /// In en, this message translates to:
+  /// **'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.'**
+  String get backlogModelHelp;
+
   /// Warning about large model sizes
   ///
   /// In en, this message translates to:

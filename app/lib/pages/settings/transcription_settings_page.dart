@@ -24,6 +24,7 @@ import 'package:omi/backend/schema/bt_device/bt_device.dart';
 import 'package:omi/models/custom_stt_config.dart';
 import 'package:omi/models/stt_provider.dart';
 import 'package:omi/models/stt_request_credentials.dart';
+import 'package:omi/services/stt/stt_lane_models.dart';
 import 'package:omi/pages/on_device/on_device_settings_page.dart';
 import 'package:omi/pages/settings/transcription/json_editor_page.dart';
 import 'package:omi/pages/settings/transcription/stt_language.dart';
@@ -1156,7 +1157,9 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
   Widget _buildModelSelector() {
     return TranscriptionAutocompleteField(
       key: ValueKey('${_selectedProvider.name}_model_$_configSyncVersion'),
-      label: context.l10n.modelLabel,
+      // When a separate backlog model exists this one drives the live stream only, so say so
+      // rather than leaving two model fields that both just say "Model".
+      label: SttLaneModels.hasSeparateBatchModel(_selectedProvider) ? context.l10n.liveModelLabel : context.l10n.modelLabel,
       hint: _currentConfig.defaultModel,
       value: _currentModel,
       suggestions: _currentConfig.supportedModels,
@@ -1169,6 +1172,40 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
           _onLanguageOrModelChanged(null, newModel);
         });
       },
+    );
+  }
+
+  /// The model that transcribes audio already recorded on this phone.
+  ///
+  /// Live and backlog are separate jobs: a streaming model cannot answer a one-shot file call, and
+  /// a batch model cannot hold a socket. Without this control the backlog would silently use a
+  /// different model from the one the reader picked for the live lane.
+  Widget _buildBatchModelSelector() {
+    final provider = _selectedProvider;
+    final models = SttLaneModels.batchModels(provider);
+    if (models.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TranscriptionAutocompleteField(
+          key: ValueKey('${provider.name}_batch_model_$_configSyncVersion'),
+          label: context.l10n.backlogModelLabel,
+          hint: models.first,
+          value: SttLaneModels.batchModel(provider),
+          suggestions: models,
+          onChanged: (value) async {
+            final chosen = value.trim();
+            if (chosen.isEmpty) return;
+            await SttLaneModels.setBatchModel(provider, chosen);
+            if (mounted) setState(() => _configSyncVersion++);
+          },
+        ),
+        const SizedBox(height: OmiSpacing.xs),
+        Text(
+          context.l10n.backlogModelHelp,
+          style: OmiType.caption.copyWith(color: OmiColors.textTertiary),
+        ),
+      ],
     );
   }
 
@@ -1525,6 +1562,10 @@ class _TranscriptionSettingsPageState extends State<TranscriptionSettingsPage> {
           if (_currentConfig.supportedModels.isNotEmpty && _selectedProvider != SttProvider.onDeviceWhisper) ...[
             _buildModelSelector(),
             const SizedBox(height: OmiSpacing.md),
+            if (SttLaneModels.hasSeparateBatchModel(_selectedProvider)) ...[
+              _buildBatchModelSelector(),
+              const SizedBox(height: OmiSpacing.md),
+            ],
           ],
           TranscriptionFieldLabel(context.l10n.configuration),
           TranscriptionJsonCard(

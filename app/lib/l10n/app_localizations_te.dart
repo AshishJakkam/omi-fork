@@ -5957,6 +5957,16 @@ class AppLocalizationsTe extends AppLocalizations {
   String get modelLabel => 'మోడల్';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'ఈ మోడల్ పెద్దదిగా ఉంది మరియు మొబైల్ పరికరాలపై ఆ్యాప్ క్రాష్ లేదా చాలా నెమ్మదిగా అమలు చేయవచ్చు.\n\n\"small\" లేదా \"base\" సిఫారసు చేయబడుతుంది.';
 

@@ -5945,6 +5945,16 @@ class AppLocalizationsKn extends AppLocalizations {
   String get modelLabel => 'ಮಾದರಿ';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'ಈ ಮಾದರಿ ಗುರುತ್ವವಾಗಿದೆ ಮತ್ತು ಸಂಭವವಾಗಿ ಅಪ್ಲಿಕೇಶನ್ ಅದೃಶ್ಯ ಮಾಡುವುದು ಅಥವಾ ಮೊಬೈಲ್ ಸಾಧನಗಳಲ್ಲಿ ಬಹಳ ನಿಧಾನವಾಗಿ ಚಲಾಯಿಸುವುದು.\n\n\"small\" ಅಥವಾ \"base\" ಶಿಫಾರಸುಮಾಡಲಾಗುತ್ತದೆ.';
 

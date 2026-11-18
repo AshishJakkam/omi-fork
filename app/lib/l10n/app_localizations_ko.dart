@@ -5829,6 +5829,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get modelLabel => '모델';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning => '이 모델은 크고 모바일 기기에서 앱이 충돌하거나 매우 느리게 실행될 수 있습니다.\n\nsmall 또는 base를 권장합니다.';
 
   @override

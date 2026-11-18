@@ -5928,6 +5928,16 @@ class AppLocalizationsBn extends AppLocalizations {
   String get modelLabel => 'মডেল';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'এই মডেল বড় এবং মোবাইল ডিভাইসে অ্যাপটি ক্র্যাশ করতে বা খুবই ধীরে চলতে পারে।\n\n\"ছোট\" বা \"বেস\" সুপারিশ করা হয়।';
 

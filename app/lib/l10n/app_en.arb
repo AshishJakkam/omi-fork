@@ -7268,6 +7268,18 @@
     "@modelLabel": {
         "description": "Label for model selector"
     },
+    "liveModelLabel": "Live model",
+    "@liveModelLabel": {
+        "description": "Model used while the transcription screen is open and audio streams in"
+    },
+    "backlogModelLabel": "Backlog model",
+    "@backlogModelLabel": {
+        "description": "Model used for audio that was already recorded and is transcribed later"
+    },
+    "backlogModelHelp": "Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.",
+    "@backlogModelHelp": {
+        "description": "Explains why the backlog model can differ from the live model"
+    },
     "modelTooLargeWarning": "This model is large and may crash the app or run very slowly on mobile devices.\n\n\"small\" or \"base\" is recommended.",
     "@modelTooLargeWarning": {
         "description": "Warning about large model sizes"

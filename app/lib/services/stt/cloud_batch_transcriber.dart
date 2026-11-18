@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:omi/models/custom_stt_config.dart';
 import 'package:omi/models/stt_provider.dart';
 import 'package:omi/services/on_device/on_device_engine.dart';
+import 'package:omi/services/stt/stt_lane_models.dart';
 import 'package:omi/utils/logger.dart';
 
 /// Transcribes already-captured audio with the provider the reader chose.
@@ -48,7 +49,7 @@ class CloudBatchTranscriber {
       throw StateError('${config.provider.name} is selected but has no API key');
     }
 
-    final model = batchModelFor(config.model);
+    final model = resolvedBatchModel();
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey',
     );
@@ -81,10 +82,17 @@ class CloudBatchTranscriber {
     );
   }
 
-  /// The model that should answer a one-shot file for [chosen].
+  /// The model that should answer a one-shot file for this config.
   ///
-  /// A streaming selection cannot be reused for a batch call: sending a Live model name to the
-  /// unary endpoint does not transcribe, so this substitutes the batch model instead.
+  /// The reader's backlog choice wins; a streaming selection cannot be reused for a batch call, so
+  /// this falls back to the batch default rather than sending a Live model name to the unary
+  /// endpoint.
+  String resolvedBatchModel() {
+    final configured = SttLaneModels.batchModel(config.provider);
+    if (configured.isNotEmpty) return configured;
+    return batchModelFor(config.model);
+  }
+
   static String batchModelFor(String? chosen) {
     if (chosen != null && chosen.isNotEmpty && !chosen.contains('live') && !chosen.contains('native-audio')) {
       return chosen;

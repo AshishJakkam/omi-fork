@@ -5969,6 +5969,16 @@ class AppLocalizationsTa extends AppLocalizations {
   String get modelLabel => 'மாதிரி';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'இந்த மாதிரி பெரியதாக உள்ளது மற்றும் மொபைல் சாதனங்களில் பயன்பாட்டை செயலிழக்க அல்லது மிக மெதுவாக இயங்கக்கூடும்.\n\n\"சிறியவை\" அல்லது \"அடிப்படை\" பரிந்துரைக்கப்படுகிறது.';
 

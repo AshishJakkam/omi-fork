@@ -5972,6 +5972,16 @@ class AppLocalizationsTl extends AppLocalizations {
   String get modelLabel => 'Model';
 
   @override
+  String get liveModelLabel => 'Live model';
+
+  @override
+  String get backlogModelLabel => 'Backlog model';
+
+  @override
+  String get backlogModelHelp =>
+      'Audio is recorded first and transcribed later, so this can differ from the live model. It runs separately, on the audio stored on this phone.';
+
+  @override
   String get modelTooLargeWarning =>
       'Ang model na ito ay malaki at maaaring mag-crash sa app o tumatakbo ng napakabagal sa mobile devices.\n\n\"small\" o \"base\" ang inirerekomenda.';
 
