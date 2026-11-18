@@ -27,6 +27,27 @@ Three experiments against known text, run directly against the Live endpoint wit
    So the socket now logs uplink coverage (audio seconds vs wall seconds, gap count, longest gap)
    when it closes.
 
+### Two model lanes, and one endpoint that cannot be used
+
+Live and backlog are different jobs, so each now has its own model (`SttLaneModels`):
+
+| Lane | Default model | Why |
+|---|---|---|
+| Live | `gemini-3.5-transcribe-live` | purpose-built, ~⅓ the price, verified word-perfect |
+| Backlog | `gemini-3.1-flash-lite` | answers a one-shot file call correctly |
+
+**`gemini-3.5-transcribe` must not be used for batch.** Its unary `generateContent` call returns
+**HTTP 200 with empty text** for every prompt shape tried (bare, with a transcribe instruction).
+A flash-lite model with an explicit transcribe prompt returns the sentence perfectly. Offering the
+`*-transcribe` model as a batch option would look like a working choice that never produces text.
+
+**The backlog previously only knew Apple and Whisper**, so audio recorded before a cloud provider
+was configured — or while its socket was down — was transcribed by a different engine or not at
+all. It now routes through the configured provider via the runner's `transcribeChunk` seam. Two
+gates had to move: the runner refused to run without a downloaded on-device model (so a
+bring-your-own-key reader could never drain the queue), and a stored Live model cannot answer a
+batch call, so a batch model is substituted.
+
 **Still unverified:** real-mic quality with the user's own voice. The quality tests used
 synthesised speech, which is the easiest possible input, and Telugu TTS began failing
 (`finishReason: OTHER`) before auto-detect could be checked on Telugu.
