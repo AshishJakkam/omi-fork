@@ -1,5 +1,47 @@
 # Porting the fork onto a fresh Omi clone
 
+## Done — this has now been executed
+
+Branch **`fresh-v2`** on `AshishJakkam/omi-fork` is the rebuilt fork: seven commits on top of
+upstream `7df9d68b57` (cloned 2026-11-18). The patch applied cleanly to that newer commit too,
+which means the bugs below have survived at least two more upstream releases.
+
+Two things that made the restart cheap:
+
+- **Upstream already ships a fork identity** — `com.omi.fork` / `omifork` / "Omi Fork" in
+  `app/ios/Flutter/prod*.xcconfig`. It coexists with the App Store app, so **no rebrand was
+  needed to build**. The brand is still uncommitted; only a find-and-replace on those config
+  values and the display name stands between here and a rename.
+- The self-host backend work transferred almost entirely, because it lives in files upstream
+  does not have.
+
+### What `fresh-v2` contains
+
+| Commit | What |
+|---|---|
+| `101cf4f5` | The uplink + language fix (this folder's patch) |
+| `2fdd1da8` | Self-hosted backend deployment |
+| `574ecdb6` | `OMI_SELFHOST_UNLIMITED` |
+| `062b6b3e` | Let a build target a backend its operator runs |
+| `a75c5f47` | Pre-flight self-host prerequisites |
+| `64237102` | `PAYMENTS.md` |
+| `41dd5f19` | Neutral identity, free-tier entitlements, unsigned-IPA workflow |
+
+Verified on the fresh tree: `flutter analyze` reports **no errors** (2 pre-existing upstream
+infos), and **58 of upstream's own STT tests pass**.
+
+### Deliberately not carried over
+
+- `codemagic-fork.yaml` and the four commits that only touched it — the build runs on GitHub
+  Actions now.
+- The audio conditioner (`35dd176b`, `78423308`, reverted by `c4d5646a`).
+- The on-device Whisper work (~20 commits). It is the largest body of work in the old fork and it
+  does **not** cherry-pick: it depends on `AshishJakkam/whisper_flutter_new` branch
+  `persistent-context`, which lives outside this repository. Re-point `pubspec.yaml` at that fork
+  before attempting any of it. This is the one real piece of work left.
+
+---
+
 Measured against upstream `5097caa6f7` (the commit that was `origin/main` when this was written).
 The fork was re-initialised from a snapshot dated 2026-11-07, so it shares no git history with
 upstream — `git diff` and `merge-base` are useless here, and a `cherry-pick` is the only
