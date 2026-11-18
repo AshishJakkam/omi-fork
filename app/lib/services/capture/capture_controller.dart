@@ -632,7 +632,7 @@ class CaptureController extends ChangeNotifier
         for (final frame in frames) {
           final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
           if (_socket?.state == SocketServiceState.connected &&
-              !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+              (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
             if (positioned.captureRoot != null) {
               _socket?.sendEvidenceFrame(positioned);
             } else {
@@ -1175,6 +1175,18 @@ class CaptureController extends ChangeNotifier
 
   /// The phone recording is paused: the microphone is released, but the socket and the recording
   /// id (so the conversation) are kept for resume.
+  /// True when the configured provider streams to a cloud endpoint on the user's own key.
+  ///
+  /// Keeping audio on the phone protects it from Omi's servers; it must not also
+  /// withhold the uplink to a provider the user chose and pays for directly.
+  /// Without this, an exhausted Omi plan silently muted a working Gemini key:
+  /// frames were journalled to the WAL and never written to the socket, so the
+  /// live transcript stayed empty while the recording looked healthy.
+  bool get _streamsToCustomCloud {
+    final config = _preferences.customSttConfig;
+    if (!config.isEnabled) return false;
+    return config.provider != SttProvider.onDeviceWhisper && config.provider != SttProvider.localWhisper;
+  }
   bool get _phoneMicPaused => _capture.stagedReadModel.phonePaused;
   bool get isPhoneMicPaused => _capture.readModel.phonePaused;
 
@@ -2417,7 +2429,7 @@ class CaptureController extends ChangeNotifier
 
         // Send WS. A local-preview socket may hold the frame until its verdict.
         if (_socket?.state == SocketServiceState.connected &&
-            !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+            (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
           _localPreview.routePendant(
             HeldPendantFrame(
                 blePayload ?? source?.getSocketPayload(snapshot) ?? snapshot, positionedFrame, walAccepted, _now()),
@@ -3175,7 +3187,7 @@ class CaptureController extends ChangeNotifier
             final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
 
             if (_socket?.state == SocketServiceState.connected &&
-                !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+                (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
               if (positioned.captureRoot != null) {
                 _socket?.sendEvidenceFrame(positioned);
               } else {
@@ -4861,7 +4873,7 @@ class CaptureController extends ChangeNotifier
     for (final frame in _activeSource?.flush() ?? const []) {
       final positioned = _wal.getSyncs().phone.onFrameCaptured(frame, captureRoot: _captureEvidenceRoot);
       if (_socket?.state == SocketServiceState.connected &&
-          !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal) {
+          (_streamsToCustomCloud || !OnDeviceTranscriptionController.instance.shouldKeepAudioLocal)) {
         if (positioned.captureRoot != null) {
           _socket?.sendEvidenceFrame(positioned);
         } else {

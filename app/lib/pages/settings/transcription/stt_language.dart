@@ -41,6 +41,21 @@ abstract final class SttLanguage {
     return fallback;
   }
 
+  /// The language [provider] actually runs with.
+  ///
+  /// An override wins only when it is a language the provider can speak, so a stale or bad stored
+  /// value cannot break every request; otherwise the primary language decides, exactly as the
+  /// Transcription page shows it. The capture socket uses this so what the screen promises is what
+  /// the engine is handed - reading the raw stored field instead kept transcribing English after
+  /// the primary language had been changed.
+  static String resolve(SttProvider provider, {CustomSttConfig? saved, String? primary}) {
+    if (isOverridden(provider, saved: saved, primary: primary)) {
+      final stored = saved?.language;
+      final supported = SttProviderConfig.get(provider).supportedLanguages;
+      if (stored != null && stored.isNotEmpty && supported.contains(stored)) return stored;
+    }
+    return derived(provider, primary ?? SharedPreferencesUtil().userPrimaryLanguage);
+  }
   /// Whether [provider]'s language is explicitly overridden.
   ///
   /// Configs saved before the override existed carry no flag: a saved language that differs from

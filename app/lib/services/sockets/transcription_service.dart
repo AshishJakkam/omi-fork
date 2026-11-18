@@ -17,6 +17,7 @@ import 'package:omi/services/sockets/listen_client_state.dart';
 import 'package:omi/services/sockets/on_device_apple_provider.dart';
 import 'package:omi/services/sockets/on_device_whisper_provider.dart';
 import 'package:omi/services/sockets/pure_socket.dart';
+import 'package:omi/pages/settings/transcription/stt_language.dart';
 import 'package:omi/services/sockets/transcription_service.dart';
 import 'package:omi/services/audio_sources/audio_source.dart';
 import 'package:omi/utils/debug_log_manager.dart';
@@ -608,7 +609,10 @@ class TranscriptSocketServiceFactory {
         apiKey: config.apiKey ?? '',
         model:
             config.effectiveModel.isNotEmpty ? config.effectiveModel : 'gemini-2.5-flash-native-audio-preview-12-2025',
-        language: config.effectiveLanguage,
+        // Resolve the language the way every other provider does. Reading the raw stored
+        // field pinned Gemini to whatever was saved first, so changing the primary language to
+        // Telugu or Hindi still transcribed English - indistinguishable from a dead socket.
+        language: SttLanguage.resolve(config.provider, saved: config),
         sampleRate: sampleRate,
         transcoder: transcoder,
       );
