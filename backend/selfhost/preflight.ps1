@@ -15,9 +15,14 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$RepoRoot = 'C:\omiwork',
+  # Empty means "the clone this script lives in", resolved below: $PSScriptRoot is not populated
+  # during parameter binding on PowerShell 5.1. A hardcoded path silently validated the wrong tree
+  # after the fork was re-cloned, reporting present keys as missing.
+  [string]$RepoRoot = '',
   [string]$AppName = 'omi-open'
 )
+
+if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
 
 $ErrorActionPreference = 'Continue'
 $fail = 0
@@ -64,6 +69,32 @@ if (-not (Test-Path $envPath)) {
 
   if ($map['GOOGLE_CLIENT_ID'] -and $map['GOOGLE_CLIENT_ID'] -notmatch '\.apps\.googleusercontent\.com$') {
     Warn "GOOGLE_CLIENT_ID does not end in .apps.googleusercontent.com - is that a web client id?"
+  }
+}
+
+Write-Host "`n== the unlock is actually in the source ==" -ForegroundColor Cyan
+# OMI_SELFHOST_UNLIMITED is inert unless the switch exists in the code. The switch lives in a
+# patch under backend/selfhost/patches, so a clone that sets the env var but never applies it
+# deploys a fully metered backend that looks correctly configured.
+$subPath = Join-Path $RepoRoot 'backend\utils\subscription.py'
+if (-not (Test-Path $subPath)) {
+  Bad "backend\utils\subscription.py not found - wrong repo root?"
+} else {
+  $sub = Get-Content $subPath -Raw
+  if ($sub -match 'def\s+selfhost_unlimited_enabled') {
+    Ok "subscription.py defines the self-host unlock"
+  } else {
+    Bad "unlock switch missing from subscription.py - apply backend\selfhost\patches\selfhost-unlimited.patch"
+  }
+  if ($sub -match 'if\s+selfhost_unlimited_enabled\(\):\s*\r?\n\s*return\s+True') {
+    Ok "is_paid_plan honours the unlock"
+  } else {
+    Bad "is_paid_plan does not honour the unlock"
+  }
+  if ($sub -match 'transcription_seconds\s*=\s*None') {
+    Ok "plan limits resolve to unlimited"
+  } else {
+    Bad "plan limits are still metered"
   }
 }
 

@@ -216,7 +216,22 @@ def get_trial_metadata(uid: str) -> TrialMetadata:
 
 
 def is_paid_plan(plan: PlanType) -> bool:
+    if selfhost_unlimited_enabled():
+        return True
     return plan in PAID_PLAN_TYPES
+
+
+# Opt-in for a deployment that runs its own backend (backend/selfhost). With this set,
+# every allowance resolves unlimited and every plan counts as paid, so the client stops
+# metering and stops showing upgrade prompts. Nothing is bypassed here: the plan catalog
+# belongs to whoever operates the server, and this is that operator's switch. It is
+# inert on any deployment that does not set it.
+SELFHOST_UNLIMITED_ENV = 'OMI_SELFHOST_UNLIMITED'
+_SELFHOST_TRUTHY = frozenset({'1', 'true', 'yes', 'on'})
+
+
+def selfhost_unlimited_enabled() -> bool:
+    return os.getenv(SELFHOST_UNLIMITED_ENV, '').strip().lower() in _SELFHOST_TRUTHY
 
 
 def _configured_plan_price_id(plan: PlanType, interval: str) -> Optional[str]:
@@ -1020,6 +1035,17 @@ def get_plan_limits(plan: PlanType) -> PlanLimits:
     finite zero remains zero and is therefore enforced as exhausted.
     """
     plan = PlanType(plan)
+
+    if selfhost_unlimited_enabled():
+        # Every allowance unlimited. Both chat meters are left None rather than picking
+        # one, because this deployment meters neither questions nor cost.
+        return PlanLimits(
+            transcription_seconds=None,
+            words_transcribed=None,
+            insights_gained=None,
+            chat_questions_per_month=None,
+            chat_cost_usd_per_month=None,
+        )
     chat_allocation = get_plan_allocation(plan, 'chat')
     chat_limit = _effective_chat_limit(plan)
     chat_questions: Optional[int] = None
