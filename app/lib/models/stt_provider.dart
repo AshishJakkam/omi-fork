@@ -317,9 +317,15 @@ class SttProviderConfig {
       requiresApiKey: true,
       requestType: SttRequestType.streaming,
       supportedLanguages: SttLanguages.geminiSupported,
-      supportedModels: ['gemini-2.5-flash-native-audio-preview-12-2025'],
+      // Cheapest first, and the dedicated speech-to-text model first of all: it is purpose-built
+      // for this job and roughly a third the price. The conversational Live model stays listed
+      // because it is what every existing config already pins.
+      supportedModels: [
+        'gemini-3.5-transcribe-live',
+        'gemini-2.5-flash-native-audio-preview-12-2025',
+      ],
       defaultLanguage: 'en',
-      defaultModel: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      defaultModel: 'gemini-3.5-transcribe-live',
       responseSchema: SttResponseSchema.geminiLive,
       apiKeyUrl: 'https://aistudio.google.com/apikey',
       docsUrl: 'https://ai.google.dev/gemini-api/docs/models/gemini',
