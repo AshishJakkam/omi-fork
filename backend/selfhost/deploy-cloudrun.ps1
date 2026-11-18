@@ -1,4 +1,4 @@
-# Deploy the self-hosted backend to Cloud Run - the free-tier path.
+﻿# Deploy the self-hosted backend to Cloud Run - the free-tier path.
 #
 #   powershell -ExecutionPolicy Bypass -File backend\selfhost\deploy-cloudrun.ps1 -Project aiwearable-pilot
 #
@@ -26,10 +26,21 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $EnvFile) { $EnvFile = Join-Path $root 'backend\.env' }
 
 function Step($m) { Write-Host "`n== $m ==" -ForegroundColor Cyan }
-function Need($cmd) {
-  if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-    throw "$cmd is not installed. Install the Google Cloud SDK, then run 'gcloud auth login'."
+
+# The Cloud SDK installs per-user and does not always reach PATH, so a bare `gcloud` lookup fails on
+# a machine where it is plainly installed. Resolve it once, then invoke the path directly.
+function Resolve-GcloudPath {
+  $cmd = Get-Command gcloud -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd'),
+    (Join-Path $env:ProgramFiles 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd')
+  )
+  if (${env:ProgramFiles(x86)}) {
+    $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd')
   }
+  foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
+  throw 'gcloud is not installed. Install the Google Cloud SDK (winget install Google.CloudSDK), then run gcloud auth login.'
 }
 function EnvMap([string]$path) {
   $map = @{}
@@ -43,7 +54,8 @@ function EnvMap([string]$path) {
   return $map
 }
 
-Need 'gcloud'
+$gcloud = Resolve-GcloudPath
+Write-Host "  gcloud: $gcloud"
 if (-not (Test-Path $EnvFile)) { throw "env file not found: $EnvFile" }
 
 Step 'Check the unlock is in the source before spending a build'
@@ -54,8 +66,18 @@ if (-not (Select-String -Path $sub -Pattern 'def\s+selfhost_unlimited_enabled' -
 Write-Host '  unlock present'
 
 Step "Target project $Project"
-gcloud config set project $Project | Out-Null
-$billing = (gcloud billing projects describe $Project --format='value(billingEnabled)' 2>$null)
+& $gcloud config set project $Project | Out-Null
+# gcloud writes warnings to stderr, and this script runs with Stop, so relax it for the probe.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$account = (& $gcloud config get-value account 2>&1 | Out-String).Trim()
+$billing = (& $gcloud billing projects describe $Project --format='value(billingEnabled)' 2>&1 | Out-String).Trim()
+$ErrorActionPreference = $previous
+
+if (-not $account -or $account -match '\(unset\)') {
+  throw "No active gcloud account. Run: `"$gcloud`" auth login"
+}
+Write-Host "  account: $account"
 if ($billing -ne 'True') {
   throw "Billing is not enabled on $Project. Cloud Run requires a billing account even for the free tier. Enable it and set a budget alert first."
 }
@@ -63,14 +85,14 @@ Write-Host '  billing enabled'
 
 Step 'Enable the APIs this needs'
 foreach ($api in @('run.googleapis.com', 'artifactregistry.googleapis.com', 'cloudbuild.googleapis.com')) {
-  gcloud services enable $api --project $Project | Out-Null
+  & $gcloud services enable $api --project $Project | Out-Null
   Write-Host "  $api"
 }
 
 Step "Artifact Registry repository $Repo in $Region"
-$existing = gcloud artifacts repositories describe $Repo --location $Region --format='value(name)' 2>$null
+$existing = & $gcloud artifacts repositories describe $Repo --location $Region --format='value(name)' 2>$null
 if (-not $existing) {
-  gcloud artifacts repositories create $Repo --repository-format=docker --location $Region --description='self-hosted backend images' | Out-Null
+  & $gcloud artifacts repositories create $Repo --repository-format=docker --location $Region --description='self-hosted backend images' | Out-Null
   Write-Host '  created'
 } else {
   Write-Host '  already exists'
@@ -83,7 +105,7 @@ if (-not $SkipBuild) {
   Push-Location $root
   try {
     # Build from the repository root: the Dockerfile copies both backend/ and .github/scripts/.
-    gcloud builds submit --tag $tag --project $Project .
+    & $gcloud builds submit --tag $tag --project $Project .
   } finally {
     Pop-Location
   }
@@ -100,7 +122,7 @@ $envPairs = @()
 foreach ($k in $map.Keys | Sort-Object) { $envPairs += "$k=$($map[$k])" }
 $envVars = $envPairs -join ','
 
-gcloud run deploy $Service `
+& $gcloud run deploy $Service `
   --image $tag `
   --project $Project `
   --region $Region `
@@ -115,7 +137,7 @@ gcloud run deploy $Service `
   --max-instances 2 `
   --set-env-vars $envVars
 
-$url = (gcloud run services describe $Service --project $Project --region $Region --format='value(status.url)')
+$url = (& $gcloud run services describe $Service --project $Project --region $Region --format='value(status.url)')
 Write-Host "`n  deployed: $url" -ForegroundColor Green
 
 Step 'Next'
