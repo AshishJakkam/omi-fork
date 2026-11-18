@@ -2,20 +2,43 @@
 
 ## Done — this has now been executed
 
-Branch **`fresh-v2`** on `AshishJakkam/omi-fork` is the rebuilt fork: eight commits on top of
+Branch **`fresh-v2`** on `AshishJakkam/omi-fork` is the rebuilt fork: commits on top of
 upstream `7df9d68b57` (cloned 2026-11-18). The patch applied cleanly to that newer commit too,
 which means the bugs below have survived at least two more upstream releases.
 
-**It builds.** GitHub Actions run `44259624939` produced a 69.3 MB unsigned IPA. Verified from the
-packaged `Info.plist`: bundle id `com.omi.fork`, display name `Omi Fork`, scheme `omifork`.
+**It builds and runs.** Run `44271352402` produced a 69.4 MB unsigned IPA; verified from the
+packaged `Info.plist` that it carries `com.omi.fork` / `Omi Fork` / `omifork`, so the brand stays
+uncommitted. Installed on the device and launched.
 
-One build fix was needed and is worth remembering: the build died with *"Build input file cannot be
-found: ios/Runner/GoogleService-Info.plist"*. The Runner target lists that file as a resource, but
-**no build phase produces it** — upstream fills it from a Codemagic secret. A stale comment in the
-old workflow claimed an Xcode script phase copied it; no shell script in the project mentions the
-file. The workflow now copies the committed public plist into place.
+### Transcription quality findings (measured, not inferred)
 
-Two things that made the restart cheap:
+Three experiments against known text, run directly against the Live endpoint with the user's key:
+
+1. **Chunking is not the cause of the syllable splitting.** One continuous socket and 1-second
+   independent sessions produce identical, clean output. Hypothesis tested and refuted.
+2. **Upstream cannot use Gemini's transcription model at all.** It hardcodes
+   `responseModalities: ['AUDIO']`, which is the conversational shape; a `*-transcribe-*` model
+   answers nothing to it. Fixed by `buildSetupMessage`.
+3. **The language hint decides the script.** On the same real audio, hint `en` returns `testing`
+   while hint `te` returns `టెస్టింగ్` — English words transliterated into Telugu script. That is
+   the mechanism behind transcripts that read as Telugu-then-translated-to-nonsense.
+4. **Frame loss reproduces the damage.** Removing 100 ms every 300 ms turned "Accounting" into
+   "counting" and the rest of a known sentence into garbage; 60% loss produced outright nonsense.
+   So the socket now logs uplink coverage (audio seconds vs wall seconds, gap count, longest gap)
+   when it closes.
+
+**Still unverified:** real-mic quality with the user's own voice. The quality tests used
+synthesised speech, which is the easiest possible input, and Telugu TTS began failing
+(`finishReason: OTHER`) before auto-detect could be checked on Telugu.
+
+### Build fix worth remembering
+
+The build died with *"Build input file cannot be found: ios/Runner/GoogleService-Info.plist"*.
+The Runner target lists that file as a resource, but **no build phase produces it** — upstream fills
+it from a Codemagic secret. A stale comment claimed an Xcode script phase copied it; no shell script
+in the project mentions the file. The workflow now copies the committed public plist into place.
+
+### Two things that made the restart cheap
 
 - **Upstream already ships a fork identity** — `com.omi.fork` / `omifork` / "Omi Fork" in
   `app/ios/Flutter/prod*.xcconfig`. It coexists with the App Store app, so **no rebrand was
@@ -23,6 +46,18 @@ Two things that made the restart cheap:
   values and the display name stands between here and a rename.
 - The self-host backend work transferred almost entirely, because it lives in files upstream
   does not have.
+
+### Installing needs a free slot
+
+A free Apple ID allows **three** sideloaded apps. All three were taken (WDA, a go-ios Device Kit
+test runner, and the old OpenMind app). Uninstall Device Kit to free one — it is only a UI-test
+runner and WDA does the automation:
+
+```powershell
+ios uninstall com.mobilenext.devicekit-iosUITests.xctrunner.WB98TW9DCS
+```
+
+The installed bundle id gains a team suffix: launch `com.omi.fork.WB98TW9DCS`, not `com.omi.fork`.
 
 ### What `fresh-v2` contains
 
