@@ -98,6 +98,27 @@ if (-not (Test-Path $subPath)) {
   }
 }
 
+Write-Host "`n== the app build points at YOUR Firebase project ==" -ForegroundColor Cyan
+# A self_host build accepts whatever project the app was initialised with
+# (env.dart validateFirebaseProject), so a stale committed config is not rejected at startup -
+# it authenticates against Omi's project while calling your backend, which fails much later and
+# far less obviously. Check the files the build actually installs.
+$fbDir = Join-Path $RepoRoot 'app\setup\release-firebase'
+$fbChecks = @(
+  @{ File = 'firebase_options_prod.dart'; Needle = 'based-hardware' },
+  @{ File = 'google-services.prod.json'; Needle = 'based-hardware' },
+  @{ File = 'GoogleService-Info.prod.plist'; Needle = 'based-hardware' }
+)
+foreach ($c in $fbChecks) {
+  $p = Join-Path $fbDir $c.File
+  if (-not (Test-Path $p)) { Warn "$($c.File) missing"; continue }
+  if ((Get-Content $p -Raw) -match [regex]::Escape($c.Needle)) {
+    Bad "$($c.File) still names Omi's project ($($c.Needle)) - replace with your own"
+  } else {
+    Ok "$($c.File) names your project"
+  }
+}
+
 Write-Host "`n== service account ==" -ForegroundColor Cyan
 if (-not (Test-Path $saPath)) {
   Bad "missing $saPath"

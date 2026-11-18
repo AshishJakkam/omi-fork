@@ -21,7 +21,8 @@
   Globally unique Fly app name; also the host, so https://<AppName>.fly.dev.
 
 .PARAMETER SourceRoot
-  Full backend checkout. Defaults to C:\GitHub Repos\omi-fork.
+  Full backend checkout. Defaults to the clone this script lives in, which is correct now that the
+  fork is a complete upstream tree rather than an app-only copy.
 
 .PARAMETER EnvFile
   The filled env file. Defaults to <repo>\backend\.env.
@@ -32,10 +33,15 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$AppName,
-  [string]$SourceRoot = 'C:\GitHub Repos\omi-fork',
+  # Empty means "the clone this script lives in"; resolved below because $PSScriptRoot is not
+  # populated during parameter binding on PowerShell 5.1. The old default pointed at a path that
+  # only existed on one machine.
+  [string]$SourceRoot = '',
   [string]$EnvFile = '',
   [switch]$SkipDeploy
 )
+
+if (-not $SourceRoot) { $SourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
 
 $ErrorActionPreference = 'Stop'
 
