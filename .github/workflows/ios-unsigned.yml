@@ -104,16 +104,14 @@ jobs:
           #   lib/firebase_options_{prod,dev}.dart
           #   android/app/src/{prod,dev}/google-services.json
           #   ios/Config/{Prod,Dev}/GoogleService-Info.plist
-          # The last of those matters because an Xcode "Run Script" phase copies
-          # ios/Config/Prod/GoogleService-Info.plist into Runner/ for Release-prod,
-          # and fails the build if it is absent. It also validates each file names
-          # the expected project, so a wrong config fails loudly instead of
-          # producing a misconfigured app.
+          # It validates each file names the expected project, so a wrong config
+          # fails loudly instead of producing a misconfigured app.
           bash scripts/install_release_firebase_config.sh
           # The Runner target lists ios/Runner/GoogleService-Info.plist as a
-          # resource, and upstream fills it from a Codemagic secret. An unsigned
-          # build has no secret, and the file is public client config that every
-          # shipped app already carries, so copy the committed one into place.
+          # resource and no build phase produces it: upstream fills it from a
+          # Codemagic secret. An unsigned build has no secret, and the file is
+          # public client config every shipped app already carries, so copy the
+          # committed one into place.
           cp ios/Config/Prod/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist
           /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' ios/Runner/GoogleService-Info.plist
 
