@@ -1,15 +1,15 @@
-# Fly.io deployment for the self-hosted backend.
+﻿# Fly.io deployment for the self-hosted backend.
 #
 #   fly launch --no-deploy --name <your-app> --region bom
-#   fly volumes create omi_data --size 3 --region bom
+#   fly volumes create aiwearable_data --size 3 --region bom
 #   fly secrets import < backend/.env
 #   fly secrets set FIREBASE_AUTH_CREDENTIALS_PATH=/app/secrets/firebase-service-account.json
 #   fly deploy --dockerfile backend/selfhost/Dockerfile
 #
-# `bom` is Mumbai — the closest region to you, which matters because the phone talks to this
+# `bom` is Mumbai â€” the closest region to you, which matters because the phone talks to this
 # host for every sync and every on-device transcript upload.
 
-app = "CHANGE-ME-omi"
+app = "aiwearable-pilot"
 primary_region = "bom"
 
 [build]
@@ -25,7 +25,7 @@ primary_region = "bom"
 [[mounts]]
   # OMI_ENV_STAGE=offline stores uploads on the instance, so this volume is the data.
   # Without it, every machine restart loses recordings that have not been transcribed yet.
-  source = "omi_data"
+  source = "aiwearable_data"
   destination = "/app/syncing"
 
 [[mounts]]
