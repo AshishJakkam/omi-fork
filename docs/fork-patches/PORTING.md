@@ -2,9 +2,18 @@
 
 ## Done — this has now been executed
 
-Branch **`fresh-v2`** on `AshishJakkam/omi-fork` is the rebuilt fork: seven commits on top of
+Branch **`fresh-v2`** on `AshishJakkam/omi-fork` is the rebuilt fork: eight commits on top of
 upstream `7df9d68b57` (cloned 2026-11-18). The patch applied cleanly to that newer commit too,
 which means the bugs below have survived at least two more upstream releases.
+
+**It builds.** GitHub Actions run `44259624939` produced a 69.3 MB unsigned IPA. Verified from the
+packaged `Info.plist`: bundle id `com.omi.fork`, display name `Omi Fork`, scheme `omifork`.
+
+One build fix was needed and is worth remembering: the build died with *"Build input file cannot be
+found: ios/Runner/GoogleService-Info.plist"*. The Runner target lists that file as a resource, but
+**no build phase produces it** — upstream fills it from a Codemagic secret. A stale comment in the
+old workflow claimed an Xcode script phase copied it; no shell script in the project mentions the
+file. The workflow now copies the committed public plist into place.
 
 Two things that made the restart cheap:
 
@@ -26,6 +35,7 @@ Two things that made the restart cheap:
 | `a75c5f47` | Pre-flight self-host prerequisites |
 | `64237102` | `PAYMENTS.md` |
 | `41dd5f19` | Neutral identity, free-tier entitlements, unsigned-IPA workflow |
+| `95a5c626` | Put the Firebase plist where the Runner target looks for it |
 
 Verified on the fresh tree: `flutter analyze` reports **no errors** (2 pre-existing upstream
 infos), and **58 of upstream's own STT tests pass**.
