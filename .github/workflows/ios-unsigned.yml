@@ -31,6 +31,10 @@ on:
         type: boolean
         required: false
         default: true
+      firebase_project_id:
+        description: 'Firebase project the committed client config must name. Blank keeps Omi''s (based-hardware). Set this for a self_host build.'
+        required: false
+        default: ''
       include_watch:
         description: 'Keep the watch app and other nested bundles. Requires a PAID Apple team.'
         type: boolean
@@ -105,8 +109,10 @@ jobs:
           #   android/app/src/{prod,dev}/google-services.json
           #   ios/Config/{Prod,Dev}/GoogleService-Info.plist
           # It validates each file names the expected project, so a wrong config
-          # fails loudly instead of producing a misconfigured app.
-          bash scripts/install_release_firebase_config.sh
+          # fails loudly instead of producing a misconfigured app. A self-hosted build points the
+          # app at its own Firebase project, so that expectation comes from the workflow input
+          # rather than always being Omi's.
+          OMI_FIREBASE_PROJECT_ID="${{ inputs.firebase_project_id }}" bash scripts/install_release_firebase_config.sh
           # The Runner target lists ios/Runner/GoogleService-Info.plist as a
           # resource and no build phase produces it: upstream fills it from a
           # Codemagic secret. An unsigned build has no secret, and the file is
