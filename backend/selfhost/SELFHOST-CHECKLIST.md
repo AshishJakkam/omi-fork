@@ -59,16 +59,27 @@ A `self_host` build accepts whatever Firebase project the app was initialised wi
 config is **not** rejected at startup â€” it authenticates against Omi's project while calling your
 backend, and fails much later with an auth error that looks unrelated.
 
-Replace all three, generated from **your** project (`flutterfire configure`, or download from the
-Firebase console):
+Regenerate all six files from **your** project. `flutterfire` 1.5.0 is installed but is not on PATH:
 
-```
-app\setup\release-firebase\firebase_options_prod.dart
-app\setup\release-firebase\google-services.prod.json
-app\setup\release-firebase\GoogleService-Info.prod.plist
+```powershell
+$ff = "$env:LOCALAPPDATA\Pub\Cache\bin\flutterfire.bat"
+cd <repo>\app
+& $ff configure --platforms=android,ios --out=lib/firebase_options_prod.dart `
+  --ios-bundle-id=com.omi.fork --android-package-name=com.friend.ios `
+  --android-out=android/app/src/prod/ --ios-out=ios/Config/Prod/ `
+  --project=aiwearable-pilot --ios-target=Runner --yes
 ```
 
-Preflight fails if any of them still names `based-hardware`.
+Repeat with `firebase_options_dev.dart`, `android/app/src/dev/`, `ios/Config/Dev/` and the dev
+package name. The build script requires **both** prod and dev files to exist, so generate the dev
+pair from the same project even though only one project is in play.
+
+Copy the six outputs into `app\setup\release-firebase\` under the names listed there.
+
+**Run it from a scratch copy of `app/`.** `flutterfire configure` also rewrites the Xcode project,
+which you do not want in your working tree. Copy the generated files back instead.
+
+Preflight fails if any of the three installed files still names `based-hardware`.
 
 ## 6. Fill in `backend/.env` â€” **you**, four values
 
