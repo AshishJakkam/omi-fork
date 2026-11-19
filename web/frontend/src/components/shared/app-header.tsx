@@ -207,6 +207,11 @@ export default function AppHeader({
     return null;
   }
 
+  // The marketing landing page and licence page are a standalone site with their own header.
+  if (pathname === '/' || pathname?.startsWith('/licenses')) {
+    return null;
+  }
+
   return !dreamforcePage ? (
     <>
       <header
