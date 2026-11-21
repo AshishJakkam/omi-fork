@@ -40,19 +40,13 @@ function Get-DomainOwner([string]$domain) {
   return "live owner ($ns)"
 }
 
-function Get-UspoTotals([string[]]$terms) {
-  # The public search page posts to this endpoint; a browser session is required because the
-  # request is same-origin and carries the WAF token. Fall back to a clear message when it fails
-  # rather than reporting zero, which would read as "clear".
-  try {
-    $body = @{
-      names = $terms
-    } | ConvertTo-Json -Compress
-    Write-Host "  USPTO: run tools\check-name.ps1 from a browser session, or query manually:" -ForegroundColor Yellow
-    Write-Host "         https://tmsearch.uspto.gov  (search each wordmark, filter class 9/42/38)" -ForegroundColor Yellow
-  } catch {
-    Write-Host "  USPTO: check failed" -ForegroundColor Yellow
-  }
+function Write-UsptoGuidance {
+  # Deliberately does not query. The public search page posts same-origin with an AWS WAF token, so
+  # a scripted call needs a real browser session. Printing "0" here would read as "clear" when it
+  # only means "not checked" - the mistake that made MINDEX invisible behind a clean 'mindext'.
+  Write-Host "  USPTO: not checked by this script. Search https://tmsearch.uspto.gov for each" -ForegroundColor Yellow
+  Write-Host "         wordmark AND its phonetic neighbours, then keep only records that are alive" -ForegroundColor Yellow
+  Write-Host "         and in class 9, 42 or 38. USPTO stores classes as 'IC 042', not '42'." -ForegroundColor Yellow
 }
 
 foreach ($raw in $Names) {
